@@ -8,18 +8,11 @@ The product will eventually catalog internal tools and their relationships. This
 
 Accounts belong to the tool itself and use email/password. They do not depend on Google Workspace or Microsoft 365. PostgreSQL is the chosen database and Railway is the chosen deployment platform. No database or Railway service has been provisioned by this source package.
 
-## Preview flows
+## Current UI
 
-| Screen | Interaction |
-|---|---|
-| Sign in | Email, password, visibility toggle, validation, loading |
-| Create account | Full name, email, password, simulated verification state |
-| Forgot password | Email and simulated reset-request acknowledgement |
-| Email state | Explain the next step; explicitly state that no email was sent |
-| Account | Minimal sample identity and sign-out action |
-| Signed out | Clear in-memory preview values and return to sign in |
+A single centered form, black (#000000) primary actions and English copy. Only logo, heading, fields and account navigation remain. Sign in, registration and password reset validate inputs but report that the action is unavailable because no backend is connected. Credentials are never persisted or transmitted.
 
-Select **Use demo details** to fill sample inputs. Sign-in accepts the demo email with any nonempty password, solely to simulate a successful UI transition. Other emails show a demo-only message. No credential is stored or transmitted. Reloading the page resets state.
+The explicit design-review URL `/?view=account` displays only an Account heading and Sign out button. It grants no access and contains no account data. Sign out clears in-memory form state and the review query parameter. The previous demo login and simulated email-success screens have been removed.
 
 ## Proposed production flow
 

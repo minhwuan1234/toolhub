@@ -5,14 +5,14 @@ English-only account interface for an internal tools workspace, inspired by the 
 ## What is included
 
 - Sign in, create account and password-reset screens.
-- Validation, loading, password visibility and simulated email states.
+- Validation, password visibility and unavailable-service feedback.
 - Minimal account screen and sign-out interaction.
 - Responsive layout and keyboard focus handling.
 - Node.js standalone production output, Dockerfile and Railway configuration.
 
 **This is an interactive UI prototype, not a working authentication service.** It does not create accounts, send email, store passwords or connect to a database. All preview state is in memory and resets on reload. No real internal data is included.
 
-Choose **Use demo details**, then **Sign in**, to preview the account screen. The demo email is `demo@example.com`. The sample password is a UI placeholder; it is not authenticated. Do not enter real credentials.
+The interface is deliberately minimal: a centered form with a black primary action. Forms validate inputs, then report that the requested action is currently unavailable. No successful authentication or email delivery is simulated. To inspect the sign-out layout during design review, open `/?view=account`; this shows no user data and creates no authenticated session.
 
 ## Run locally
 
