@@ -14,6 +14,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+import { WorkspaceShell } from './workspace-shell';
+import { UserRound } from 'lucide-react';
 import { AdminUsers } from './admin-users';
 
 type User = { id: string; name: string; email: string; department: string; role?: string };
@@ -122,7 +124,15 @@ export default function Home() {
   }
 
   if (loading) return <main className="loading-state"><output>Loading…</output></main>;
-  if (showAdmin && user?.role === 'admin') return <AdminUsers currentUserId={user.id} onBack={() => { setShowAdmin(false); loadSession().catch(e => setError(e.message)); }} />;
+  if (user) return <WorkspaceShell user={user} active={showAdmin && user.role==='admin'?'members':'account'} onNavigate={page=>{setError('');setShowAdmin(page==='members' && user.role==='admin');}} onSignOut={signOut} busy={busy}>
+    {error && <p className="workspace-error error" role="alert">{error}</p>}
+    {showAdmin && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:<section className="accounts-content profile-content" aria-labelledby="profile-heading">
+      <div className="accounts-heading"><div className="page-icon"><UserRound size={28} strokeWidth={1.5}/></div><h1 id="profile-heading">My account</h1><p>Your profile and workspace membership.</p></div>
+      <div className="profile-heading"><span className="profile-avatar" aria-hidden="true">{user.name.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</span><div><strong>{user.name}</strong><span>{user.email}</span></div></div>
+      <dl className="profile-fields"><div><dt>Full name</dt><dd>{user.name}</dd></div><div><dt>Email</dt><dd>{user.email}</dd></div><div><dt>Department</dt><dd><span className="profile-department">{user.department}</span></dd></div><div><dt>Role</dt><dd>{user.role==='admin'?'Admin':'Member'}</dd></div></dl>
+      <Button variant="outline" className="profile-signout" disabled={busy} onClick={signOut}><LogOut size={15}/>{busy?'Signing out…':'Sign out'}</Button>
+    </section>}
+  </WorkspaceShell>;
 
   return (
     <main className="auth-page">
@@ -155,14 +165,6 @@ export default function Home() {
               Signed out.
             </output>
           )}
-          {screen === 'account' ? (
-            <div className="account-details">
-              <p><strong>{user?.name}</strong></p><p>{user?.email}</p><p>{user?.department} · {user?.role === 'admin' ? 'Admin' : 'Member'}</p>
-              {user?.role === 'admin' && <Button className="submit-button" onClick={() => setShowAdmin(true)}>Manage accounts</Button>}
-              <Button variant="outline" className="submit-button" disabled={busy} onClick={signOut}><LogOut size={16} />Sign out</Button>
-              {error && <p className="error" role="alert">{error}</p>}
-            </div>
-          ) : (
             <form onSubmit={submit} noValidate>
               {screen === 'signup' && (
                 <div className="field">
@@ -283,7 +285,6 @@ export default function Home() {
                     : 'Sign in'}
               </Button>
             </form>
-          )}
           {screen !== 'account' && (
             <div className="account-switch">
               {screen === 'login' ? (
