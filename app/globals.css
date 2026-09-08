@@ -482,16 +482,10 @@ h1:focus {
 .sidebar-profile strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .workspace-access { font-size:11px; color:#787774; background:#f4f4f1; padding:3px 7px; border-radius:4px; }
 .workspace-error { margin:20px 48px 0; }
-.profile-content { max-width:900px; margin-left:0; }
-.profile-heading { display:flex; align-items:center; gap:16px; padding-bottom:28px; border-bottom:1px solid #ededea; }
-.profile-avatar { display:grid; place-items:center; width:56px; height:56px; border-radius:10px; background:#efeeea; color:#66645d; font-size:18px; font-weight:550; }
-.profile-heading strong { display:block; font-size:16px; font-weight:550; }
-.profile-heading div>span { display:block; font-size:13px; color:#91918b; margin-top:3px; }
-.profile-fields { margin:0 0 28px; }
-.profile-fields>div { display:grid; grid-template-columns:170px minmax(0,1fr); gap:20px; padding:18px 0; border-bottom:1px solid #efefec; font-size:13px; }
-.profile-fields dt { color:#787774; }
-.profile-fields dd { margin:0; overflow-wrap:anywhere; }
-.profile-department { padding:3px 7px; background:#f0efeb; border-radius:4px; font-size:12px; }
-.admin-page .profile-signout { border:1px solid #e3e3df; background:white; color:#37352f; gap:7px; }
-.admin-page .profile-signout:hover { background:#f7f7f5; }
-@media(max-width:760px) { .profile-fields>div { grid-template-columns:100px minmax(0,1fr); gap:12px; } .workspace-error { margin:16px 20px; } }
+/* The shared main panel fills the remaining height on every workspace page. */
+.workspace-main { display:flex; flex-direction:column; }
+.workspace-topbar { flex-shrink:0; }
+#workspace-content { flex:1; display:flex; flex-direction:column; min-width:0; }
+#workspace-content>.accounts-content { width:100%; margin:0 auto; }
+.toolhub-canvas { flex:1; min-height:calc(100svh - 56px); background-color:#fafaf9; background-image:radial-gradient(circle,#d5d5d0 1px,transparent 1px); background-size:24px 24px; background-position:12px 12px; }
+@media(max-width:760px) { .workspace-main { min-height:calc(100svh - 115px); } .toolhub-canvas { min-height:calc(100svh - 163px); } .workspace-error { margin:16px 20px; } }

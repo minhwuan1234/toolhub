@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type SyntheticEvent } from 'react';
 import Image from 'next/image';
-import { Eye, EyeOff, LogOut } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { ConnectionDiagram, departments } from './connection-diagram';
 import {
   Select,
@@ -15,7 +15,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 import { WorkspaceShell } from './workspace-shell';
-import { UserRound } from 'lucide-react';
 import { AdminUsers } from './admin-users';
 
 type User = { id: string; name: string; email: string; department: string; role?: string };
@@ -124,14 +123,9 @@ export default function Home() {
   }
 
   if (loading) return <main className="loading-state"><output>Loading…</output></main>;
-  if (user) return <WorkspaceShell user={user} active={showAdmin && user.role==='admin'?'members':'account'} onNavigate={page=>{setError('');setShowAdmin(page==='members' && user.role==='admin');}} onSignOut={signOut} busy={busy}>
+  if (user) return <WorkspaceShell user={user} active={showAdmin && user.role==='admin'?'members':'toolhub'} onNavigate={page=>{setError('');setShowAdmin(page==='members' && user.role==='admin');}} onSignOut={signOut} busy={busy}>
     {error && <p className="workspace-error error" role="alert">{error}</p>}
-    {showAdmin && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:<section className="accounts-content profile-content" aria-labelledby="profile-heading">
-      <div className="accounts-heading"><div className="page-icon"><UserRound size={28} strokeWidth={1.5}/></div><h1 id="profile-heading">My account</h1><p>Your profile and workspace membership.</p></div>
-      <div className="profile-heading"><span className="profile-avatar" aria-hidden="true">{user.name.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</span><div><strong>{user.name}</strong><span>{user.email}</span></div></div>
-      <dl className="profile-fields"><div><dt>Full name</dt><dd>{user.name}</dd></div><div><dt>Email</dt><dd>{user.email}</dd></div><div><dt>Department</dt><dd><span className="profile-department">{user.department}</span></dd></div><div><dt>Role</dt><dd>{user.role==='admin'?'Admin':'Member'}</dd></div></dl>
-      <Button variant="outline" className="profile-signout" disabled={busy} onClick={signOut}><LogOut size={15}/>{busy?'Signing out…':'Sign out'}</Button>
-    </section>}
+    {showAdmin && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:<section className="toolhub-canvas" aria-label="Toolhub canvas"/>}
   </WorkspaceShell>;
 
   return (
