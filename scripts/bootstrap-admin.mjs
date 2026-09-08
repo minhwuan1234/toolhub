@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { hashPassword } from 'better-auth/crypto';
 export async function bootstrapAdmin(connectionString = process.env.DATABASE_URL, env = process.env) {
   if (!env.ADMIN_EMAIL && !env.ADMIN_PASSWORD) return;
-  if (!env.ADMIN_EMAIL || !env.ADMIN_PASSWORD || env.ADMIN_PASSWORD.length < 12 || env.ADMIN_PASSWORD.length > 128 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.ADMIN_EMAIL)) throw new Error('Invalid bootstrap admin configuration.');
+  if (!env.ADMIN_EMAIL || !env.ADMIN_PASSWORD) throw new Error('Set both ADMIN_EMAIL and ADMIN_PASSWORD, or remove both.');
+  if (env.ADMIN_PASSWORD.length < 12 || env.ADMIN_PASSWORD.length > 128) throw new Error('ADMIN_PASSWORD must contain 12 to 128 characters.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.ADMIN_EMAIL.trim())) throw new Error('ADMIN_EMAIL must be a valid email address.');
   const pool = new Pool({connectionString, max:1,connectionTimeoutMillis:10000});
   let client;
   try {
