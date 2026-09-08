@@ -1,4 +1,6 @@
 'use client';
+// This application canvas intentionally accepts focus and keyboard/pointer panning.
+/* oxlint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
 import {useEffect,useRef,useState} from 'react';
 import {Scan,ZoomIn,ZoomOut} from 'lucide-react';
 import {Button} from '@/components/ui/button';
