@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type SyntheticEvent } from 'react';
+import Image from 'next/image';
 import { Eye, EyeOff, LogOut } from 'lucide-react';
 import { ConnectionDiagram, departments } from './connection-diagram';
 import {
@@ -13,9 +14,17 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+import { AdminUsers } from './admin-users';
+
+type User = { id: string; name: string; email: string; department: string; role?: string };
 type Screen = 'login' | 'signup' | 'forgot' | 'account';
 
 export default function Home() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [showAdmin, setShowAdmin] = useState(false);
   const [screen, setScreen] = useState<Screen>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,11 +37,14 @@ export default function Home() {
   const heading = useRef<HTMLHeadingElement>(null);
   const mounted = useRef(false);
 
-  // An explicit design-review URL only; this does not establish a session.
+  async function loadSession() {
+    const response = await fetch('/api/me', { cache: 'no-store' });
+    if (response.status === 401) { setUser(null); setScreen('login'); return; }
+    if (!response.ok) throw new Error('Account service is temporarily unavailable.');
+    const data = await response.json() as {user:User}; setUser(data.user); setScreen('account');
+  }
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('view') === 'account') {
-      setScreen('account');
-    }
+    Promise.resolve().then(loadSession).catch(e => setError(e.message)).finally(() => setLoading(false));
   }, []);
   useEffect(() => {
     if (mounted.current) heading.current?.focus();
@@ -41,6 +53,7 @@ export default function Home() {
 
   function go(next: Screen) {
     setScreen(next);
+    setNotice('');
     setError('');
     setDepartmentError(false);
     setPassword('');
@@ -48,7 +61,9 @@ export default function Home() {
     setSignedOut(false);
   }
 
-  function submit(event: FormEvent) {
+  async function submit(event: SyntheticEvent<HTMLFormElement>) {
+    if (busy) { event.preventDefault(); return; }
+    setError('');
     event.preventDefault();
     if (screen === 'signup' && !name.trim()) {
       setError('Enter your full name.');
@@ -77,33 +92,43 @@ export default function Home() {
       );
       return;
     }
-    // No auth backend exists yet. Never simulate a successful account creation,
-    // sign-in or email delivery, and never persist or transmit credentials.
-    setPassword('');
-    setVisible(false);
-    setError(
-      screen === 'signup'
-        ? 'Account creation is currently unavailable.'
-        : screen === 'forgot'
-          ? 'Password reset is currently unavailable.'
-          : 'Sign in is currently unavailable.',
-    );
+    if (screen === 'forgot') { setError('Contact your administrator for account assistance.'); return; }
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/auth/${screen === 'signup' ? 'sign-up' : 'sign-in'}/email`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({email:email.trim().toLowerCase(),password,...(screen === 'signup' ? {name:name.trim(),department} : {})}),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as {message?:string};
+        throw new Error(response.status === 429 ? 'Too many attempts. Try again in a minute.' : data.message || 'Unable to sign in. Please try again.');
+      }
+      setPassword(''); setVisible(false);
+      if (screen === 'signup') { go('login'); setNotice('Continue by signing in with your account.'); }
+      else await loadSession();
+    } catch(e) { setError(e instanceof Error ? e.message : 'Connection failed. Please try again.'); }
+    finally { setBusy(false); }
   }
 
-  function signOut() {
-    go('login');
-    setEmail('');
-    setName('');
-    setDepartment(null);
-    setSignedOut(true);
-    window.history.replaceState(null, '', window.location.pathname);
+  async function signOut() {
+    setBusy(true); setError('');
+    try {
+      const response=await fetch('/api/auth/sign-out',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      if (!response.ok) throw new Error('Unable to sign out. Try again.');
+      setUser(null); setShowAdmin(false); go('login'); setSignedOut(true);
+      setEmail(''); setName(''); setDepartment(null);
+    } catch(e) { setError(e instanceof Error ? e.message : 'Connection failed.'); }
+    finally { setBusy(false); }
   }
+
+  if (loading) return <main className="loading-state"><output>Loading…</output></main>;
+  if (showAdmin && user?.role === 'admin') return <AdminUsers currentUserId={user.id} onBack={() => { setShowAdmin(false); loadSession().catch(e => setError(e.message)); }} />;
 
   return (
     <main className="auth-page">
       <aside className="context-panel" aria-label="Tool connections">
         <div className="brand">
-          <img src="/notion.svg" width="34" height="34" alt="Notion" />
+          <Image src="/notion.svg" width="34" height="34" alt="Notion" />
           <span>toolhub</span>
         </div>
         <ConnectionDiagram selected={screen === 'signup' ? department : null} />
@@ -124,16 +149,19 @@ export default function Home() {
               Enter the email associated with your account.
             </p>
           )}
+          {notice && <output className="notice">{notice}</output>}
           {signedOut && (
-            <p className="notice" role="status">
+            <output className="notice">
               Signed out.
-            </p>
+            </output>
           )}
           {screen === 'account' ? (
-            <Button className="submit-button" onClick={signOut}>
-              <LogOut size={16} />
-              Sign out
-            </Button>
+            <div className="account-details">
+              <p><strong>{user?.name}</strong></p><p>{user?.email}</p><p>{user?.department} · {user?.role === 'admin' ? 'Admin' : 'Member'}</p>
+              {user?.role === 'admin' && <Button className="submit-button" onClick={() => setShowAdmin(true)}>Manage accounts</Button>}
+              <Button variant="outline" className="submit-button" disabled={busy} onClick={signOut}><LogOut size={16} />Sign out</Button>
+              {error && <p className="error" role="alert">{error}</p>}
+            </div>
           ) : (
             <form onSubmit={submit} noValidate>
               {screen === 'signup' && (
@@ -207,15 +235,7 @@ export default function Home() {
                 <div className="field">
                   <div className="field-heading">
                     <label htmlFor="password">Password</label>
-                    {screen === 'login' && (
-                      <button
-                        className="text-button"
-                        type="button"
-                        onClick={() => go('forgot')}
-                      >
-                        Forgot password?
-                      </button>
-                    )}
+
                   </div>
                   <div className="password-input">
                     <Input
@@ -255,8 +275,8 @@ export default function Home() {
                   {error}
                 </p>
               )}
-              <Button className="submit-button" type="submit">
-                {screen === 'signup'
+              <Button className="submit-button" type="submit" disabled={busy}>
+                {busy ? 'Please wait…' : screen === 'signup'
                   ? 'Create account'
                   : screen === 'forgot'
                     ? 'Send reset link'

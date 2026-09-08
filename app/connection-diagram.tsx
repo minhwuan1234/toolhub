@@ -12,15 +12,8 @@ import {
   Play,
 } from 'lucide-react';
 
-export const departments = [
-  'Account',
-  'Business Development',
-  'Production',
-  'Project Management',
-  'HR',
-  'Andy Tran',
-  'Marketing',
-] as const;
+import { departments } from '@/lib/departments';
+export { departments };
 
 const nodes = [
   {

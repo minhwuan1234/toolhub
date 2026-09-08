@@ -397,3 +397,15 @@ h1:focus {
     animation: none !important;
   }
 }
+
+.loading-state { min-height:100svh; display:grid; place-items:center; color:#666; }
+.account-details { display:grid; gap:12px; overflow-wrap:anywhere; }
+.account-details .submit-button { margin-top:12px; }
+.admin-page { max-width:1280px; padding:32px; margin:auto; }
+.admin-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:64px; }
+.admin-page h1 { font-size:30px; font-weight:650; margin-bottom:24px; }
+.admin-search { display:flex; gap:12px; max-width:440px; margin-bottom:24px; }
+.admin-page td, .admin-page th { padding:16px 12px; }
+.account-email { color:#6b6b6b; font-size:13px; margin-top:4px; }
+.admin-pagination { display:flex; gap:16px; align-items:center; justify-content:flex-end; margin-top:24px; font-size:14px; }
+@media(max-width:640px) { .admin-page { padding:20px 16px; } .admin-header { margin-bottom:40px; } }

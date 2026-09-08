@@ -1,70 +1,23 @@
-# Toolhub — Account UX and PostgreSQL architecture
+# Toolhub account flow
 
-Updated: 2026-09-08. Toolhub is a working project name.
+English-only interface using the black primary color (#000000), temporary Notion logo, and animated department diagram.
 
-## Confirmed scope
+## Registration and sessions
 
-The product will eventually catalog internal tools and their relationships. This release covers account UI/UX only. All interface copy and source documentation are in English.
+Register with full name, email, department and a password of 12–128 characters. Supported departments: Account, Business Development, Production, Project Management, HR, Andy Tran, Marketing.
 
-Accounts belong to the tool itself and use email/password. They do not depend on Google Workspace or Microsoft 365. PostgreSQL is the chosen database and Railway is the chosen deployment platform. No database or Railway service has been provisioned by this source package.
+Registration creates a Member. The client returns to sign-in with neutral guidance; it does not claim email delivery or verification. Sign-in establishes a Better Auth session backed by PostgreSQL. Reload retrieves the session from the backend. Logout revokes the current session and clears its cookie. Errors remain visible and do not simulate success.
 
-## Current UI
+Only authenticated users see their own account. The old design-review `?view=account` bypass has been removed. There is no password-reset UI until recovery is implemented.
 
-A single centered form, black (#000000) primary actions and English copy. Only logo, heading, fields and account navigation remain. Sign in, registration and password reset validate inputs but report that the action is unavailable because no backend is connected. Credentials are never persisted or transmitted.
+## Administration
 
-The explicit design-review URL `/?view=account` displays only an Account heading and Sign out button. It grants no access and contains no account data. Sign out clears in-memory form state and the review query parameter. The previous demo login and simulated email-success screens have been removed.
+The first admin is provisioned through private Railway Variables at startup. No hardcoded password exists. `minhwuan889@gmail.com` is the requested initial admin email; the password is entered privately by the owner.
 
-## Proposed production flow
+Admins see a searchable, paginated account table with department, role, status and join date. They explicitly save each row. Roles are Member (`user` in PostgreSQL) and Admin (`admin`). Disabling or changing a role revokes all sessions. Admins cannot disable/demote themselves. Each write rechecks the acting user's database role inside a serialized transaction and records an audit event.
 
-Registration → email verification → access approval → sign in → account/workspace → sign out.
+Normal registration cannot set role, ban status or any other administrative attribute. Direct Better Auth admin HTTP endpoints are not exposed. The custom admin API validates sessions, origin and inputs.
 
-Access approval is a recommendation for an internal application, not yet a confirmed business rule. Do not grant internal-data access solely because someone verifies an email address. Users must not assign their own roles or approval status.
+## Current limits
 
-Production behavior must include:
-
-- Generic sign-in and reset errors that do not disclose account existence.
-- Library-managed password hashing, verification tokens and session lifecycle.
-- Server-side session and permission checks on protected pages and APIs.
-- Real session revocation and cookie clearing at sign-out, including error handling.
-- Expired-session, unverified-email and unapproved-account experiences.
-- Email delivery and single-use, expiring verification/reset links.
-
-## PostgreSQL model
-
-Browser → application backend/auth library → Railway PostgreSQL.
-
-Use the authentication library's supported schema rather than implementing cryptography or inventing a competing session system. All account and application records can reside in PostgreSQL.
-
-| Logical data | Purpose | Ownership |
-|---|---|---|
-| Users | Stable ID, normalized unique email, verification time | Auth library |
-| Credentials | Password hash and provider association | Auth library; never returned to UI |
-| Sessions | User reference, expiry and revocation | Auth library and backend |
-| Verification tokens | Email verification and password recovery | Library-managed, expiring, single-use |
-| Profiles | Display name and optional avatar | Application |
-| Access grants | Role, pending/active/disabled state, approver | Authorized backend operations |
-| Auth events | Event type, time, user reference when known | Backend; no passwords or secret tokens |
-
-This is a logical model, not an applied migration. Tools, departments, boards, connections, notes and tickets can later use the same PostgreSQL database.
-
-## Railway setup boundary
-
-The current source deploys without database credentials because it contains no persistence. When the backend is added, create PostgreSQL in the same Railway project and reference its `DATABASE_URL` from the app's server environment. Never expose that variable to browser code.
-
-PostgreSQL is free software; hosting, backups and email delivery are separate operational costs. Railway service creation and actual deployment are not completed by this package.
-
-## Acceptance before enabling real accounts
-
-Verify registration, duplicate email behavior, email confirmation, wrong/correct password, pending and disabled users, expired sessions, reset-token reuse, access checks and server-side sign-out revocation. Replace demo handlers only once those flows are implemented.
-
-## Sources
-
-- [PostgreSQL license](https://www.postgresql.org/about/licence/)
-- [Railway PostgreSQL](https://docs.railway.com/databases/postgresql)
-- [Railway pricing](https://docs.railway.com/pricing/plans)
-
-## Registration department
-
-Registration requires one Department selection: Account, Business Development, Production, Project Management, HR, Andy Tran, or Marketing. There is no default selection. The field is displayed only on registration and is validated before the unavailable-backend response. It remains UI state until authentication is implemented.
-
-When implementing PostgreSQL persistence, store the selected department association in the profile and validate it against the server-side department catalog. Department selection must never automatically grant elevated access.
+Registration is open; email verification and access approval are not enabled. A Member has no internal tool data access in this release. No recovery email, account deletion or password-reset action is implemented. The department graph is decorative, not a real workflow engine.

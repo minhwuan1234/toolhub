@@ -6,7 +6,7 @@ Version 1.2 · 2026-09-08 · English interface
 
 A calm internal workspace with readable content, restrained color and clear actions. The visual direction adapts the user's Notion-design-analysis reference. Values below are project decisions, not verified official Notion design tokens.
 
-The current delivery contains account UI only. Show a centered form and logo on a white canvas. Keep the left-hand connection diagram on desktop, with category names only. No slogans, long descriptions, footer copy or demo controls.
+The current delivery contains working account authentication and admin account management. Show a centered form and logo on a white canvas. Keep the left-hand connection diagram on desktop, with category names only. No slogans, long descriptions, footer copy or demo controls.
 
 ## Principles
 
@@ -66,7 +66,7 @@ Ensure no full-page horizontal overflow. Touch controls should provide approxima
 
 ## Backend boundary
 
-Do not place prototype explanations or demo controls on the default form. Document the UI-only scope in the README. Until a backend exists, submission reports that the action is unavailable. Never claim successful sign-in, account creation or email delivery. The explicit `?view=account` design-review URL contains no protected data and establishes no session.
+Do not place prototype explanations or demo controls on the default form. Authentication is backed by PostgreSQL. Show success only after the server confirms the action. Retrieve the current session before showing account details; there is no design-review bypass. Only admins see account management, and the server enforces the same permission. Email delivery and password recovery are not implemented.
 
 ## Future workspace
 

@@ -1,78 +1,84 @@
-# Toolhub — Account UI
+# Toolhub
 
-English-only account interface for an internal tools workspace, inspired by the project's Notion-style design system.
+Internal account application with email/password registration, login, logout and admin account management. English UI, black primary actions and an animated department diagram.
 
-## What is included
+## Railway setup
 
-- Sign in, create account and password-reset screens.
-- Required Department selection on registration (seven configured departments).
-- Large animated department diagram with pause and reduced-motion support.
-- Validation, password visibility and unavailable-service feedback.
-- Minimal account screen and sign-out interaction.
-- Responsive layout and keyboard focus handling.
-- Node.js standalone production output, Dockerfile and Railway configuration.
+In the **toolhub** service's Variables tab (not the Postgres service), configure:
 
-**This is an interactive UI prototype, not a working authentication service.** It does not create accounts, send email, store passwords or connect to a database. All preview state is in memory and resets on reload. No real internal data is included.
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Reference the Postgres service's `DATABASE_URL`, typically `${{Postgres.DATABASE_URL}}` |
+| `BETTER_AUTH_URL` | `https://toolhub-production-958c.up.railway.app` (use the actual public app URL) |
+| `BETTER_AUTH_SECRET` | Generate privately with `openssl rand -base64 32`; keep stable across deployments |
+| `ADMIN_EMAIL` | `minhwuan889@gmail.com` |
+| `ADMIN_PASSWORD` | A private password of 12–128 characters |
+| `ADMIN_NAME` | Your display name; defaults to Admin |
+| `ADMIN_DEPARTMENT` | One of the configured departments; defaults to Account |
 
-The interface is deliberately minimal: a centered form with a black primary action. Forms validate inputs, then report that the requested action is currently unavailable. No successful authentication or email delivery is simulated. To inspect the sign-out layout during design review, open `/?view=account`; this shows no user data and creates no authenticated session.
+The Dockerfile builds the app and starts `scripts/start.mjs`. Startup applies versioned SQL migrations and creates the initial admin, then starts the HTTP server. `/api/health` must return 200 for Railway's health check. Do not override the start command with a command that bypasses migrations.
 
-## Run locally
+After the first successful startup, remove **both `ADMIN_PASSWORD` and `ADMIN_EMAIL`** from Railway Variables and deploy the variable changes. The admin remains in PostgreSQL. Bootstrap never resets an existing admin password or promotes an existing member. If the bootstrap email is already registered and no admin exists, startup fails; resolve the account deliberately instead of overwriting it.
 
-Use Node.js 22.13 or newer and npm.
+Push from this repository:
+
+```sh
+git push -u origin codex/initial-ui
+```
+
+Ensure Railway follows that branch. Sign in with the admin email and the password you set, then choose **Manage accounts**.
+
+Railway passes the client IP in `X-Real-IP`. On Railway only, the app trusts that edge header for rate limiting; keep traffic behind Railway's proxy. [Railway request headers](https://docs.railway.com/networking/public-networking/specs-and-limits), [variable references](https://docs.railway.com/variables).
+
+## Local development
+
+Node.js 22.13+ and a reachable PostgreSQL database are required. No local database installation is needed when connecting to Railway's public database connection from a local development environment. The private Railway database hostname works only inside Railway.
 
 ```sh
 npm ci
-npm run dev
+cp .env.example .env
+# Fill .env privately, using a development database.
+npm run db:migrate
+node --env-file=.env --import tsx node_modules/vinext/dist/cli.js dev
 ```
 
-Open the local address printed by the dev server.
+Alternatively load the environment in your terminal and run `npm run dev`. Never commit `.env` or publish connection strings.
 
-## Production
+Production build (set BETTER_AUTH_URL to an HTTPS URL served by your reverse proxy; use the development server for plain localhost HTTP):
 
 ```sh
 npm run build
-npm start
+node --env-file=.env scripts/start.mjs
 ```
 
-The standalone server reads `PORT` (default 3000) and `HOST` (default 0.0.0.0). Do not use the development server as a Railway start command.
+## Account behavior
 
-## GitHub → Railway
+- Signup creates a Member with a required department; registration cannot assign roles.
+- Signup is open in this version. Email verification, invitations, approval workflows and email password recovery are not implemented. A Member currently sees only their own account. Add an access policy before adding internal company data.
+- Better Auth hashes passwords and uses HttpOnly session cookies, with Secure cookies on HTTPS. Sessions expire after seven days and are renewed during use.
+- Admins can search accounts, change department/role and disable or reactivate users. Role changes and disabling revoke all target sessions.
+- An admin cannot disable or demote themselves. Server-side checks and a PostgreSQL transaction serialize account updates.
+- Audit records contain registration, session creation/removal, admin bootstrap and account changes. Session expiry itself is not a logout event; expired rows may remain until cleaned up.
+- No administrator sees passwords or session tokens in the account list.
 
-1. Put this folder's contents at the root of your GitHub repository. Include `package-lock.json`, `Dockerfile`, `railway.json` and the source files.
-2. In Railway, create a project and choose **Deploy from GitHub repo**. Select the repository and deployment branch.
-3. Railway detects the root `Dockerfile`. It builds the standalone app and starts the Node.js server. No start-command override is required.
-4. After deployment succeeds, generate a domain in the service's Networking settings. The app listens on Railway's `PORT`.
-5. Subsequent pushes to the connected branch can trigger deployments according to your Railway settings.
+## Files and learning
 
-If this folder is inside a larger repository, set the Railway service's root directory to the folder containing `package.json` and `Dockerfile`.
+- `lib/server/auth.ts`: Better Auth configuration and field mapping.
+- `app/api`: account endpoints and server authorization.
+- `lib/server/admin-users.ts`: parameterized SQL transaction for admin changes.
+- `db/migrations`: versioned schema; never edit applied migrations.
+- `POSTGRES-LEARNING.md`: tables and SQL exercises.
+- `AUTH-UX.md`: current behavior.
+- `VALIDATION.md`: checks and limitations.
 
-No environment secrets are needed for this UI-only release. `.env.example` documents the runtime options; never commit real `.env` files.
+## Tests
 
-[Railway Dockerfiles](https://docs.railway.com/builds/dockerfiles) · [GitHub autodeploys](https://docs.railway.com/deployments/github-autodeploys)
+Use a dedicated empty test database, never production. The test inserts accounts and clears rate-limit records.
 
-## PostgreSQL — next phase
+```sh
+TEST_DATABASE_URL='your-private-test-connection-string' npm run test:auth
+npx tsc --noEmit
+npm run build
+```
 
-Decision: store application data in **PostgreSQL on Railway**. No Supabase, Firebase or SQLite service is required.
-
-When real authentication is implemented:
-
-1. Add a PostgreSQL service to the same Railway project.
-2. Add a backend-only `DATABASE_URL` variable to the app by referencing the database service's `DATABASE_URL`. Use Railway's variable selector so the reference matches your actual service name.
-3. Use a maintained authentication library with a PostgreSQL adapter for credentials and sessions, with migrations for profiles and access grants.
-4. Configure email delivery, verification/reset redirects, server-side authorization and secure session cookies.
-5. Run and verify database migrations before enabling real registration.
-
-Adding `DATABASE_URL` alone does **not** make this prototype's forms real. There is no database driver, schema migration or auth backend implemented in this release.
-
-PostgreSQL has no license fee. Railway hosting and database resources may incur charges according to the selected plan and usage. [PostgreSQL license](https://www.postgresql.org/about/licence/) · [Railway PostgreSQL](https://docs.railway.com/databases/postgresql) · [Railway pricing](https://docs.railway.com/pricing/plans)
-
-## Source layout
-
-- `app/page.tsx`: account screens and demo-only interactions.
-- `app/globals.css`: visual tokens and responsive styles.
-- `components/ui`: installed UI primitives.
-- `DESIGN.md`: English project design rules.
-- `AUTH-UX.md`: account flow and PostgreSQL architecture decisions.
-- `Dockerfile` / `railway.json`: Railway deployment configuration.
-
-Stack: React, TypeScript, Vinext, Tailwind CSS, Base UI/Shadcn and Lucide. The scaffold includes additional UI primitives for later reuse. The current build uses Vinext's standalone Node.js target, not Cloudflare Workers.
+Production data persists in Railway's Postgres volume across app redeployments. Manage backups in Railway separately.
