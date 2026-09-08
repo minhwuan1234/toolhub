@@ -20,7 +20,7 @@ import {UsagePanel,useUsage} from './usage-panel';
 import { WorkspaceShell } from './workspace-shell';
 import { AdminUsers } from './admin-users';
 
-type User = { id: string; name: string; email: string; department: string; role?: string };
+type User = { id: string; name: string; email: string; department: string; role?: string; image?:string|null };
 type Screen = 'login' | 'signup' | 'forgot' | 'account';
 
 export default function Home() {
@@ -129,7 +129,7 @@ export default function Home() {
   }
 
   if (loading) return <main className="loading-state"><output>Loading…</output></main>;
-  if (user) return <WorkspaceShell user={user} active={user.role==='admin'?activePage:'toolhub'} onNavigate={page=>{setError('');setActivePage(user.role==='admin'?page:'toolhub');}} usage={usage.data} onSignOut={signOut} busy={busy}>
+  if (user) return <WorkspaceShell user={user} active={user.role==='admin'?activePage:'toolhub'} onNavigate={page=>{setError('');setActivePage(user.role==='admin'?page:'toolhub');}} usage={usage.data} onAvatarChanged={image=>setUser(current=>current?{...current,image}:current)} onSignOut={signOut} busy={busy}>
     {error && <p className="workspace-error error" role="alert">{error}</p>}
     {activePage==='usage' && user.role==='admin'?<UsagePanel key={usage.data?.periodKey??'pending'} data={usage.data} error={usage.error} loading={usage.loading} onRefresh={usage.refresh}/>:activePage==='members' && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:<DepartmentBoard department={activeDepartment} onDepartmentChange={setActiveDepartment}/>}
   </WorkspaceShell>;

@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     const url=new URL(request.url);
     const search=(url.searchParams.get('search') || '').slice(0,100);
     const page=Math.max(0,Math.min(100000,Math.floor(Number(url.searchParams.get('page')) || 0)));
-    const result=await pool.query('SELECT id,name,email,department,role,banned,created_at, count(*) OVER()::int AS total FROM users WHERE name ILIKE $1 OR email ILIKE $1 ORDER BY created_at DESC,id LIMIT 25 OFFSET $2',[`%${search}%`,page*25]);
+    const result=await pool.query('SELECT id,name,email,image,department,role,banned,created_at, count(*) OVER()::int AS total FROM users WHERE name ILIKE $1 OR email ILIKE $1 ORDER BY created_at DESC,id LIMIT 25 OFFSET $2',[`%${search}%`,page*25]);
     return Response.json({users:result.rows,total:result.rows[0]?.total || 0,page},{headers});
   } catch { return Response.json({message:'Account service is temporarily unavailable.'},{status:503,headers}); }
 }

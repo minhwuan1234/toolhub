@@ -1,4 +1,5 @@
 'use client';
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Users, Search, ChevronRight, ChevronLeft, Check } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { departments } from '@/lib/departments';
-type User = {id:string;name:string;email:string;department:string;role:string;banned:boolean;created_at:string};
+type User = {image?:string|null;id:string;name:string;email:string;department:string;role:string;banned:boolean;created_at:string};
 function AccountSelect({value,items,label,disabled,onChange,className=''}:{value:string;items:{value:string;label:string}[];label:string;disabled:boolean;onChange:(value:string)=>void;className?:string}) {
   return <Select value={value} items={items} disabled={disabled} onValueChange={v=>{if(v)onChange(v);}}><SelectTrigger className={`account-cell-select ${className}`} aria-label={label}><SelectValue/></SelectTrigger><SelectContent align="start" alignItemWithTrigger={false} className="account-select-menu">{items.map(item=><SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select>;
 }
@@ -48,7 +49,7 @@ export function AdminUsers({currentUserId}:{currentUserId:string}) {
         <div className="accounts-table" aria-busy={loading}>
         <Table><TableHeader><TableRow><TableHead>Account</TableHead><TableHead>Department</TableHead><TableHead>Role</TableHead><TableHead>Status</TableHead><TableHead>Joined</TableHead><TableHead><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader>
           <TableBody>{loading?<TableRow><TableCell colSpan={6}><output className="table-empty">Loading accounts…</output></TableCell></TableRow>:users.map(user=><TableRow key={user.id} className={isDirty(user)?'row-edited':''}>
-            <TableCell><div className="member-identity"><span className="member-avatar" aria-hidden="true">{user.name.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</span><div><div className="member-name">{user.name}{user.id===currentUserId && <span className="you-label">you</span>}</div><div className="account-email">{user.email}</div></div></div></TableCell>
+            <TableCell><div className="member-identity"><span className="member-avatar" aria-hidden="true">{user.image?<Image src={user.image} unoptimized width={32} height={32} alt=""/>:user.name.trim().split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</span><div><div className="member-name">{user.name}{user.id===currentUserId && <span className="you-label">you</span>}</div><div className="account-email">{user.email}</div></div></div></TableCell>
             <TableCell><AccountSelect label={`Department for ${user.email}`} value={user.department} items={departments.map(d=>({value:d,label:d}))} disabled={!!saving} onChange={department=>edit(user.id,{department})} className="department-cell"/></TableCell>
             <TableCell>{user.id===currentUserId?<span className="role-label">Admin</span>:<AccountSelect label={`Role for ${user.email}`} value={user.role} items={[{value:'user',label:'Member'},{value:'admin',label:'Admin'}]} disabled={!!saving} onChange={role=>edit(user.id,{role})}/>}</TableCell>
             <TableCell>{user.id===currentUserId?<span className="status-label status-active"><i/>Active</span>:<AccountSelect label={`Status for ${user.email}`} value={user.banned?'disabled':'active'} items={[{value:'active',label:'Active'},{value:'disabled',label:'Disabled'}]} disabled={!!saving} onChange={value=>edit(user.id,{banned:value==='disabled'})} className={`status-select ${user.banned?'status-disabled':'status-active'}`}/>}</TableCell>
