@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+import {UsagePanel,useUsage} from './usage-panel';
 import { WorkspaceShell } from './workspace-shell';
 import { AdminUsers } from './admin-users';
 
@@ -25,7 +26,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
-  const [showAdmin, setShowAdmin] = useState(false);
+  const [activePage,setActivePage]=useState<'toolhub'|'members'|'usage'>('toolhub');
+  const usage=useUsage(user?.role==='admin');
   const [screen, setScreen] = useState<Screen>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -116,16 +118,16 @@ export default function Home() {
     try {
       const response=await fetch('/api/auth/sign-out',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
       if (!response.ok) throw new Error('Unable to sign out. Try again.');
-      setUser(null); setShowAdmin(false); go('login'); setSignedOut(true);
+      setUser(null); setActivePage('toolhub'); go('login'); setSignedOut(true);
       setEmail(''); setName(''); setDepartment(null);
     } catch(e) { setError(e instanceof Error ? e.message : 'Connection failed.'); }
     finally { setBusy(false); }
   }
 
   if (loading) return <main className="loading-state"><output>Loading…</output></main>;
-  if (user) return <WorkspaceShell user={user} active={showAdmin && user.role==='admin'?'members':'toolhub'} onNavigate={page=>{setError('');setShowAdmin(page==='members' && user.role==='admin');}} onSignOut={signOut} busy={busy}>
+  if (user) return <WorkspaceShell user={user} active={user.role==='admin'?activePage:'toolhub'} onNavigate={page=>{setError('');setActivePage(user.role==='admin'?page:'toolhub');}} usage={usage.data} onSignOut={signOut} busy={busy}>
     {error && <p className="workspace-error error" role="alert">{error}</p>}
-    {showAdmin && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:<section className="toolhub-canvas" aria-label="Toolhub canvas"/>}
+    {activePage==='usage' && user.role==='admin'?<UsagePanel key={usage.data?.periodKey??'pending'} data={usage.data} error={usage.error} loading={usage.loading} onRefresh={usage.refresh}/>:activePage==='members' && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:<section className="toolhub-canvas" aria-label="Toolhub canvas"/>}
   </WorkspaceShell>;
 
   return (
