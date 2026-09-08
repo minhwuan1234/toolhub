@@ -541,3 +541,15 @@ progress.usage-meter::-moz-progress-bar { background:#000; }
 progress.usage-over::-webkit-progress-value { background:#b42318; }
 progress.usage-over::-moz-progress-bar { background:#b42318; }
 progress.usage-unknown::-webkit-progress-bar { background:repeating-linear-gradient(110deg,#e4e3df 0 4px,#efeeeb 4px 8px); }
+
+.department-board[data-slot='tabs'] { display:flex; flex-direction:column; flex:1; gap:0; min-width:0; }
+.department-tabs-bar { flex-shrink:0; overflow-x:auto; border-bottom:1px solid #e9e9e5; background:#fff; padding:0 24px; scrollbar-width:thin; }
+.department-tabs[data-slot='tabs-list'] { display:flex; width:max-content; min-width:100%; height:46px; justify-content:flex-start; gap:18px; padding:0; border-radius:0; background:transparent; }
+.department-tabs [data-slot='tabs-trigger'] { appearance:none; flex:none; height:46px; padding:0 4px; border:0; border-radius:0; background:transparent; color:#787774; font-size:13px; font-weight:400; box-shadow:none; }
+.department-tabs [data-slot='tabs-trigger']:hover { color:#37352f; }
+.department-tabs [data-slot='tabs-trigger'][data-active] { color:#000; font-weight:550; background:transparent; }
+.department-tabs [data-slot='tabs-trigger']::after { bottom:0; height:2px; background:#000; }
+.department-tabs [data-slot='tabs-trigger']:focus-visible { outline:2px solid #787774; outline-offset:-5px; box-shadow:none; }
+.department-zone.toolhub-canvas { flex:1; min-height:calc(100svh - 103px); }
+.department-zone[hidden] { display:none; }
+@media(max-width:760px) { .department-tabs-bar { padding:0 16px; } .department-tabs[data-slot='tabs-list'] { gap:16px; } .department-zone.toolhub-canvas { min-height:calc(100svh - 210px); } }
