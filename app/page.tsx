@@ -1,15 +1,15 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Eye, EyeOff, LogOut } from 'lucide-react';
+import { ConnectionDiagram, departments } from './connection-diagram';
 import {
-  Eye,
-  EyeOff,
-  LogOut,
-  Users,
-  Workflow,
-  Wallet,
-  ChartNoAxesCombined,
-} from 'lucide-react';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -20,6 +20,8 @@ export default function Home() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [department, setDepartment] = useState<string | null>(null);
+  const [departmentError, setDepartmentError] = useState(false);
   const [visible, setVisible] = useState(false);
   const [error, setError] = useState('');
   const [signedOut, setSignedOut] = useState(false);
@@ -40,6 +42,7 @@ export default function Home() {
   function go(next: Screen) {
     setScreen(next);
     setError('');
+    setDepartmentError(false);
     setPassword('');
     setVisible(false);
     setSignedOut(false);
@@ -53,6 +56,14 @@ export default function Home() {
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setError('Enter a valid email address.');
+      return;
+    }
+    if (
+      screen === 'signup' &&
+      (!department || !departments.some((item) => item === department))
+    ) {
+      setDepartmentError(true);
+      setError('Select your department.');
       return;
     }
     if (
@@ -83,6 +94,7 @@ export default function Home() {
     go('login');
     setEmail('');
     setName('');
+    setDepartment(null);
     setSignedOut(true);
     window.history.replaceState(null, '', window.location.pathname);
   }
@@ -94,53 +106,7 @@ export default function Home() {
           <img src="/notion.svg" width="34" height="34" alt="Notion" />
           <span>toolhub</span>
         </div>
-        <div
-          className="map"
-          role="img"
-          aria-label="Toolhub connects Sales, Operations, Data and Finance. Illustrative diagram."
-        >
-          <svg
-            className="map-lines"
-            viewBox="0 0 440 280"
-            preserveAspectRatio="none"
-            aria-hidden="true"
-          >
-            <g fill="none" stroke="#c8c4be" strokeWidth="1.4">
-              <path d="M85 54H155Q178 54 178 78V140H220" />
-              <path d="M355 54H285Q262 54 262 78V140H220" />
-              <path d="M85 226H155Q178 226 178 202V140H220" />
-              <path d="M355 226H285Q262 226 262 202V140H220" />
-            </g>
-          </svg>
-          <div className="mini-node node-sales">
-            <span className="node-icon peach">
-              <Users size={19} />
-            </span>
-            Sales
-          </div>
-          <div className="mini-node node-ops">
-            <span className="node-icon mint">
-              <Workflow size={19} />
-            </span>
-            Operations
-          </div>
-          <div className="mini-node node-main">
-            <img src="/notion.svg" width="24" height="24" alt="" />
-            <strong>toolhub</strong>
-          </div>
-          <div className="mini-node node-data">
-            <span className="node-icon sky">
-              <ChartNoAxesCombined size={19} />
-            </span>
-            Data
-          </div>
-          <div className="mini-node node-finance">
-            <span className="node-icon yellow">
-              <Wallet size={19} />
-            </span>
-            Finance
-          </div>
-        </div>
+        <ConnectionDiagram selected={screen === 'signup' ? department : null} />
       </aside>
       <div className="form-region">
         <section className="auth-panel" aria-label="Toolhub account">
@@ -195,6 +161,48 @@ export default function Home() {
                   required
                 />
               </div>
+              {screen === 'signup' && (
+                <div className="field">
+                  <label id="department-label" htmlFor="department">
+                    Department
+                  </label>
+                  <Select
+                    value={department}
+                    onValueChange={(value) => {
+                      setDepartment(value);
+                      setDepartmentError(false);
+                      setError('');
+                    }}
+                    items={departments.map((value) => ({
+                      label: value,
+                      value,
+                    }))}
+                  >
+                    <SelectTrigger
+                      id="department"
+                      className="department-select"
+                      aria-labelledby="department-label"
+                      aria-required="true"
+                      aria-invalid={departmentError}
+                      aria-describedby={
+                        departmentError ? 'form-error' : undefined
+                      }
+                    >
+                      <SelectValue placeholder="Select department" />
+                    </SelectTrigger>
+                    <SelectContent
+                      alignItemWithTrigger={false}
+                      className="department-menu"
+                    >
+                      {departments.map((item) => (
+                        <SelectItem key={item} value={item}>
+                          {item}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               {screen !== 'forgot' && (
                 <div className="field">
                   <div className="field-heading">
@@ -243,7 +251,7 @@ export default function Home() {
                 </div>
               )}
               {error && (
-                <p className="error" role="alert">
+                <p id="form-error" className="error" role="alert">
                   {error}
                 </p>
               )}

@@ -5,6 +5,8 @@ English-only account interface for an internal tools workspace, inspired by the 
 ## What is included
 
 - Sign in, create account and password-reset screens.
+- Required Department selection on registration (seven configured departments).
+- Large animated department diagram with pause and reduced-motion support.
 - Validation, password visibility and unavailable-service feedback.
 - Minimal account screen and sign-out interaction.
 - Responsive layout and keyboard focus handling.

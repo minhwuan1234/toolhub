@@ -253,87 +253,109 @@ h1:focus {
   justify-content: center;
   padding: 64px 32px;
 }
-.map {
+
+.diagram-scene {
   position: relative;
-  width: 100%;
-  max-width: 460px;
-  height: 280px;
+  width: calc(100% + 40px);
+  max-width: 680px;
+  align-self: center;
   margin: auto;
-  background-image: radial-gradient(#d6d3cd 0.8px, transparent 0.8px);
-  background-size: 16px 16px;
 }
-.map-lines {
-  position: absolute;
-  inset: 0;
+.connection-art {
+  display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
+  overflow: visible;
 }
-.mini-node {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 58px;
-  background: #ffffff;
-  border: 1px solid #dedbd6;
-  border-radius: 10px;
-  padding: 12px 16px;
-  font-size: 14px;
+.connection-base {
+  stroke: #c8c4be;
 }
-.node-icon {
+.connection-flow {
+  stroke: #8b8780;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 5 95;
+  animation: data-flow 7s linear infinite;
+  animation-delay: var(--delay);
+}
+.selected .connection-base {
+  stroke: #000000;
+  stroke-width: 1.8;
+}
+.selected .connection-flow {
+  stroke: #000000;
+}
+.floating-node {
+  animation: node-float 6s ease-in-out infinite;
+  animation-delay: var(--delay);
+}
+.selected-node .node-frame {
+  stroke: #000000;
+  stroke-width: 1.5;
+}
+.hub-halo {
+  animation: halo-breathe 5s ease-in-out infinite;
+  transform-origin: 305px 313px;
+}
+.motion-toggle {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
+  width: 44px;
+  height: 44px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #606060;
 }
-.peach {
-  background: #ffe8d4;
-  color: #793400;
+.motion-toggle:hover {
+  background: #eae8e4;
+  color: #000;
 }
-.mint {
-  background: #d9f3e1;
-  color: #236b3b;
+.motion-paused * {
+  animation-play-state: paused !important;
 }
-.sky {
-  background: #dcecfa;
-  color: #005bab;
+.department-select[data-slot='select-trigger'] {
+  width: 100%;
+  height: 44px;
+  padding: 10px 12px;
+  font-size: 16px;
 }
-.yellow {
-  background: #fef7d6;
-  color: #793400;
+.department-menu [data-slot='select-item'] {
+  min-height: 40px;
+  padding: 8px 32px 8px 12px;
 }
-.node-sales {
-  top: 22px;
-  left: 0;
+@keyframes data-flow {
+  to {
+    stroke-dashoffset: -100;
+  }
 }
-.node-ops {
-  top: 22px;
-  right: 0;
+@keyframes node-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
 }
-.node-data {
-  bottom: 22px;
-  left: 0;
-}
-.node-finance {
-  bottom: 22px;
-  right: 0;
-}
-.node-main {
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  border-color: #000000;
-  color: #000000;
-  padding: 15px 20px;
+@keyframes halo-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.035);
+  }
 }
 @media (max-width: 1000px) {
   .context-panel {
     padding: 32px 24px;
   }
-  .mini-node {
-    padding: 10px;
-    gap: 7px;
+  .diagram-scene {
+    width: calc(100% + 24px);
   }
 }
 @media (max-width: 760px) {
@@ -350,7 +372,7 @@ h1:focus {
   .context-panel .brand {
     justify-content: center;
   }
-  .map {
+  .diagram-scene {
     display: none;
   }
   .form-region {
@@ -361,5 +383,17 @@ h1:focus {
   }
   .auth-panel {
     margin-top: 24px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connection-flow {
+    display: none;
+  }
+  .motion-toggle {
+    display: none;
+  }
+  .floating-node,
+  .hub-halo {
+    animation: none !important;
   }
 }

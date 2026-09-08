@@ -62,3 +62,9 @@ Verify registration, duplicate email behavior, email confirmation, wrong/correct
 - [PostgreSQL license](https://www.postgresql.org/about/licence/)
 - [Railway PostgreSQL](https://docs.railway.com/databases/postgresql)
 - [Railway pricing](https://docs.railway.com/pricing/plans)
+
+## Registration department
+
+Registration requires one Department selection: Account, Business Development, Production, Project Management, HR, Andy Tran, or Marketing. There is no default selection. The field is displayed only on registration and is validated before the unavailable-backend response. It remains UI state until authentication is implemented.
+
+When implementing PostgreSQL persistence, store the selected department association in the profile and validate it against the server-side department catalog. Department selection must never automatically grant elevated access.

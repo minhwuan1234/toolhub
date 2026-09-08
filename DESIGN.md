@@ -77,3 +77,9 @@ Once requested, use a collapsible sidebar, content-first pages and node connecti
 - User-supplied Notion-design-analysis, alpha: source for palette and shape direction.
 - [Notion page customization](https://www.notion.com/help/customize-and-style-your-content): content styling and page-width inspiration.
 - [Notion sidebar navigation](https://www.notion.com/help/guides/navigating-with-the-sidebar): future navigation inspiration.
+
+## Department and diagram update
+
+Registration includes a required Department select with the seven approved department names. Use the installed Select primitive, a 44px trigger and keyboard-accessible options.
+
+The desktop diagram fills most of the left panel, showing all seven departments around Toolhub. Retain the pastel icon backgrounds and black primary color. Gentle node float, moving connection dashes and a subtle hub outline provide looping motion. Selection highlights the corresponding department. A compact pause control stops animation; reduced-motion preferences disable it. Mobile hides the illustration to keep the form compact. The motion is decorative, not actual system activity.
