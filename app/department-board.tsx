@@ -12,8 +12,13 @@ import {NodePicker,nodeOptions,iconOptions,type BoardNode,type NodeKind} from '.
 import {NodeDetails} from './node-details';
 import {useNodeConnections} from './node-connections';
 import {CanvasNote,type BoardNote} from './canvas-note';
+import {NodeInspector,type ConnectionDraft} from './node-inspector';
 
 function CanvasZone({department}:{department:Department}) {
+  const [inspecting,setInspecting]=useState<string|null>(null);
+  const [drafts,setDrafts]=useState<Record<string,ConnectionDraft>>({});
+  const clickStart=useRef<{x:number;y:number}|null>(null);
+  const didDrag=useRef(false);
   const [notes,setNotes]=useState<BoardNote[]>([]);
   const [nodes,setNodes]=useState<BoardNode[]>([]);
   const [picker,setPicker]=useState(false);
@@ -41,6 +46,8 @@ function CanvasZone({department}:{department:Department}) {
   const drag=useRef<{id:number;x:number;y:number}|null>(null);
   function deleteNode(id:string){
     nodeDrag.current=null;
+    if(inspecting===id)setInspecting(null);
+    setDrafts(current=>{const next={...current};delete next[id];return next;});
     connections.removeNode(id);
     setNodes(current=>current.filter(node=>node.id!==id));
     requestAnimationFrame(()=>viewport.current?.focus());
@@ -85,9 +92,9 @@ function CanvasZone({department}:{department:Department}) {
       onKeyDown={event=>{if(event.target!==event.currentTarget)return;const directions:Record<string,[number,number]>={ArrowLeft:[40,0],ArrowRight:[-40,0],ArrowUp:[0,40],ArrowDown:[0,-40]};if(directions[event.key]){event.preventDefault();const [x,y]=directions[event.key];setView(current=>({...current,x:current.x+x,y:current.y+y}));}else if(['+','=','-','0','f','F'].includes(event.key)){event.preventDefault();if(['0','f','F'].includes(event.key))fit();else zoom(event.key==='-'?-1:1);}}}>
       <div ref={scene} className="canvas-scene" style={{transform:`translate(${view.x}px, ${view.y}px) scale(${view.zoom})`}}>{notes.map(note=><CanvasNote key={note.id} note={note} zoom={view.zoom} onChange={patch=>setNotes(current=>current.map(item=>item.id===note.id?{...item,...patch}:item))} onDelete={()=>setNotes(current=>current.filter(item=>item.id!==note.id))}/>)}{connections.layer}{nodes.map(node=>{
         const option=iconOptions.find(item=>item.type===node.icon)!;const Icon=option.icon;
-        return <NodeDetails onDelete={()=>deleteNode(node.id)} icon={node.icon} onIconChange={icon=>setNodes(current=>current.map(item=>item.id===node.id?{...item,icon}:item))} name={node.name} active={node.active} onRename={name=>setNodes(current=>current.map(item=>item.id===node.id?{...item,name}:item))} onToggle={()=>setNodes(current=>current.map(item=>item.id===node.id?{...item,active:!item.active}:item))} key={node.id} x={node.x} y={node.y}><button type="button" className="canvas-node" aria-label={`${node.name}. Drag or use arrow keys to move. Backspace or Delete to remove.`} title={node.name}
-          onPointerDown={event=>{event.stopPropagation();if(event.button!==0||!event.isPrimary)return;event.currentTarget.focus();event.currentTarget.setPointerCapture(event.pointerId);nodeDrag.current={id:node.id,pointer:event.pointerId,x:event.clientX,y:event.clientY};}}
-          onPointerMove={event=>{event.stopPropagation();const previous=nodeDrag.current;if(!previous||previous.pointer!==event.pointerId||previous.id!==node.id)return;const dx=(event.clientX-previous.x)/view.zoom,dy=(event.clientY-previous.y)/view.zoom;nodeDrag.current={...previous,x:event.clientX,y:event.clientY};setNodes(current=>current.map(item=>item.id===node.id?{...item,x:item.x+dx,y:item.y+dy}:item));}}
+        return <NodeDetails onDelete={()=>deleteNode(node.id)} icon={node.icon} onIconChange={icon=>setNodes(current=>current.map(item=>item.id===node.id?{...item,icon}:item))} name={node.name} active={node.active} onRename={name=>setNodes(current=>current.map(item=>item.id===node.id?{...item,name}:item))} onToggle={()=>setNodes(current=>current.map(item=>item.id===node.id?{...item,active:!item.active}:item))} key={node.id} x={node.x} y={node.y}><button type="button" className="canvas-node" onClick={event=>{if(event.detail===0||!didDrag.current){connections.cancel();setInspecting(node.id);}}} aria-label={`${node.name}. Drag or use arrow keys to move. Backspace or Delete to remove.`} title={node.name}
+          onPointerDown={event=>{event.stopPropagation();if(event.button!==0||!event.isPrimary)return;event.currentTarget.focus();clickStart.current={x:event.clientX,y:event.clientY};didDrag.current=false;event.currentTarget.setPointerCapture(event.pointerId);nodeDrag.current={id:node.id,pointer:event.pointerId,x:event.clientX,y:event.clientY};}}
+          onPointerMove={event=>{event.stopPropagation();const previous=nodeDrag.current;if(!previous||previous.pointer!==event.pointerId||previous.id!==node.id)return;if(clickStart.current&&Math.hypot(event.clientX-clickStart.current.x,event.clientY-clickStart.current.y)>4)didDrag.current=true;const dx=(event.clientX-previous.x)/view.zoom,dy=(event.clientY-previous.y)/view.zoom;nodeDrag.current={...previous,x:event.clientX,y:event.clientY};setNodes(current=>current.map(item=>item.id===node.id?{...item,x:item.x+dx,y:item.y+dy}:item));}}
           onPointerUp={event=>{event.stopPropagation();nodeDrag.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);}}
           onPointerCancel={event=>{event.stopPropagation();nodeDrag.current=null;}}
           onLostPointerCapture={event=>{event.stopPropagation();nodeDrag.current=null;}}
@@ -95,6 +102,7 @@ function CanvasZone({department}:{department:Department}) {
       })}</div>
     </div>
     {connections.menu}
+    {nodes.filter(node=>node.id===inspecting).map(node=><NodeInspector key={node.id} node={node} connected={connections.isConnected(node.id)} incoming={connections.incoming(node.id)} draft={drafts[node.id]??{url:'',tables:''}} onDraft={draft=>setDrafts(current=>({...current,[node.id]:draft}))} onClose={()=>{setInspecting(null);requestAnimationFrame(()=>viewport.current?.focus());}}/>)}
     <Button ref={addButton} className="canvas-add" variant="outline" aria-label="Add node" aria-expanded={picker} title="Add node" onClick={()=>setPicker(current=>!current)}><Plus size={19}/></Button>
     <Button className="canvas-add canvas-add-note" variant="outline" aria-label="Add note" title="Add note" onClick={addNote}><StickyNote size={19}/></Button>
     <fieldset className="canvas-controls"><legend className="sr-only">Canvas view controls</legend>

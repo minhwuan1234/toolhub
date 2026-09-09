@@ -83,5 +83,5 @@ export function useNodeConnections(nodes:BoardNode[],view:Viewport,viewport:RefO
   setSelected(current=>current&&(current.edge.source===id||current.edge.target===id)?null:current);
   if(draft?.source===id||draft?.target===id)cancel();
  }
- return {layer,ports,cancel,menu,removeNode};
+ return {layer,ports,cancel,menu,removeNode,isConnected:(id:string)=>edges.some(edge=>edge.source===id||edge.target===id),incoming:(id:string)=>nodes.filter(node=>edges.some(edge=>edge.target===id&&edge.source===node.id))};
 }
