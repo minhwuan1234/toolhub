@@ -2,7 +2,7 @@
 // This application canvas intentionally accepts focus and keyboard/pointer panning.
 /* oxlint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
 import {useEffect,useRef,useState} from 'react';
-import {Scan,ZoomIn,ZoomOut,Plus} from 'lucide-react';
+import {Scan,ZoomIn,ZoomOut,Plus,StickyNote} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
 import {departments,type Department} from '@/lib/departments';
@@ -11,13 +11,20 @@ import {DEFAULT_VIEWPORT,MIN_ZOOM,MAX_ZOOM,zoomAt,fitViewport} from '@/lib/canva
 import {NodePicker,nodeOptions,iconOptions,type BoardNode,type NodeKind} from './node-picker';
 import {NodeDetails} from './node-details';
 import {useNodeConnections} from './node-connections';
+import {CanvasNote,type BoardNote} from './canvas-note';
 
 function CanvasZone({department}:{department:Department}) {
+  const [notes,setNotes]=useState<BoardNote[]>([]);
   const [nodes,setNodes]=useState<BoardNode[]>([]);
   const [picker,setPicker]=useState(false);
   const addButton=useRef<HTMLButtonElement>(null);
   const nodeDrag=useRef<{id:string;pointer:number;x:number;y:number}|null>(null);
   function closePicker(){setPicker(false);addButton.current?.focus();}
+  function addNote(){
+    const box=viewport.current?.getBoundingClientRect();if(!box)return;
+    const x=(box.width/2-view.x)/view.zoom-140,y=(box.height/2-view.y)/view.zoom-100;
+    setNotes(current=>{let left=x,top=y;while(current.some(note=>Math.abs(note.x-left)<24&&Math.abs(note.y-top)<24)){left+=28;top+=28;}return [...current,{id:crypto.randomUUID(),x:left,y:top,width:280,height:200,text:''}];});
+  }
   function addNode(type:NodeKind,position?:{x:number;y:number}){
     const box=viewport.current?.getBoundingClientRect();if(!box)return;
     const x=((position?.x??box.width/2)-view.x)/view.zoom-72,y=((position?.y??box.height/2)-view.y)/view.zoom-32;
@@ -44,6 +51,7 @@ function CanvasZone({department}:{department:Department}) {
   useEffect(()=>{
     const element=viewport.current;if(!element)return;
     function wheel(event:WheelEvent){
+      if(event.target instanceof HTMLElement&&event.target.closest('.canvas-note textarea')&&!event.ctrlKey&&!event.metaKey)return;
       event.preventDefault();
       const box=element!.getBoundingClientRect();
       const unit=event.deltaMode===1?16:event.deltaMode===2?box.height:1;
@@ -66,7 +74,7 @@ function CanvasZone({department}:{department:Department}) {
       onPointerCancel={()=>{drag.current=null;setDragging(false);}}
       onLostPointerCapture={()=>{drag.current=null;setDragging(false);}}
       onKeyDown={event=>{if(event.target!==event.currentTarget)return;const directions:Record<string,[number,number]>={ArrowLeft:[40,0],ArrowRight:[-40,0],ArrowUp:[0,40],ArrowDown:[0,-40]};if(directions[event.key]){event.preventDefault();const [x,y]=directions[event.key];setView(current=>({...current,x:current.x+x,y:current.y+y}));}else if(['+','=','-','0','f','F'].includes(event.key)){event.preventDefault();if(['0','f','F'].includes(event.key))fit();else zoom(event.key==='-'?-1:1);}}}>
-      <div ref={scene} className="canvas-scene" style={{transform:`translate(${view.x}px, ${view.y}px) scale(${view.zoom})`}}>{connections.layer}{nodes.map(node=>{
+      <div ref={scene} className="canvas-scene" style={{transform:`translate(${view.x}px, ${view.y}px) scale(${view.zoom})`}}>{notes.map(note=><CanvasNote key={note.id} note={note} zoom={view.zoom} onChange={patch=>setNotes(current=>current.map(item=>item.id===note.id?{...item,...patch}:item))} onDelete={()=>setNotes(current=>current.filter(item=>item.id!==note.id))}/>)}{connections.layer}{nodes.map(node=>{
         const option=iconOptions.find(item=>item.type===node.icon)!;const Icon=option.icon;
         return <NodeDetails icon={node.icon} onIconChange={icon=>setNodes(current=>current.map(item=>item.id===node.id?{...item,icon}:item))} name={node.name} active={node.active} onRename={name=>setNodes(current=>current.map(item=>item.id===node.id?{...item,name}:item))} onToggle={()=>setNodes(current=>current.map(item=>item.id===node.id?{...item,active:!item.active}:item))} key={node.id} x={node.x} y={node.y}><button type="button" className="canvas-node" aria-label={`${node.name}. Drag or use arrow keys to move.`} title={node.name}
           onPointerDown={event=>{event.stopPropagation();if(event.button!==0||!event.isPrimary)return;event.currentTarget.focus();event.currentTarget.setPointerCapture(event.pointerId);nodeDrag.current={id:node.id,pointer:event.pointerId,x:event.clientX,y:event.clientY};}}
@@ -78,6 +86,7 @@ function CanvasZone({department}:{department:Department}) {
       })}</div>
     </div>
     <Button ref={addButton} className="canvas-add" variant="outline" aria-label="Add node" aria-expanded={picker} title="Add node" onClick={()=>setPicker(current=>!current)}><Plus size={19}/></Button>
+    <Button className="canvas-add canvas-add-note" variant="outline" aria-label="Add note" title="Add note" onClick={addNote}><StickyNote size={19}/></Button>
     <fieldset className="canvas-controls"><legend className="sr-only">Canvas view controls</legend>
       <Button className="canvas-control" variant="outline" aria-label="Fit screen" title="Fit screen (0)" onClick={fit}><Scan size={19}/></Button>
       <Button className="canvas-control" variant="outline" aria-label="Zoom in" title="Zoom in (+)" disabled={view.zoom>=MAX_ZOOM} onClick={()=>zoom(1)}><ZoomIn size={19}/></Button>

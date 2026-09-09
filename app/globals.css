@@ -656,3 +656,16 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .node-icon-search input { min-width:0; width:100%; border:0; outline:none; background:transparent; font-size:12px; color:#37352f; }
 .node-icon-search:focus-within { border-color:#787774; }
 .node-icon-empty { margin:12px 8px; font-size:12px; color:#787774; }
+.admin-page .canvas-add-note { top:120px; }
+.canvas-note { position:absolute; display:flex; flex-direction:column; border:1px solid #e4d99d; border-radius:8px; background:#fff6cf; color:#5b5334; box-shadow:0 3px 8px #00000005; padding:0 12px 14px; }
+.canvas-note header { display:flex; align-items:center; gap:8px; flex-shrink:0; height:36px; }
+.note-drag { display:flex; align-items:center; gap:7px; flex:1; min-width:0; height:100%; padding:0; border:0; background:transparent; color:#8b8051; cursor:grab; touch-action:none; font-size:11px; }
+.note-drag:active { cursor:grabbing; }
+.note-delete,.note-resize { display:grid; place-items:center; padding:0; background:transparent; border:0; color:#9d915d; border-radius:3px; }
+.note-delete { width:22px; height:22px; }
+.note-delete:hover { background:#eadba266; color:#5b5334; }
+.canvas-note textarea { flex:1; min-height:0; width:100%; resize:none; border:0; outline:none; background:transparent; color:#5b5334; padding:4px 0; font-size:13px; line-height:1.6; user-select:text; cursor:text; }
+.canvas-note textarea::placeholder { color:#a2945c; }
+.canvas-note:focus-within { border-color:#c1ad58; }
+.note-resize { position:absolute; right:2px; bottom:2px; width:18px; height:18px; cursor:nwse-resize; touch-action:none; }
+.canvas-node-group { z-index:1; }

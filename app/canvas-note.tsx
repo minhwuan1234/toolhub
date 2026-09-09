@@ -1,0 +1,16 @@
+'use client';
+import {useRef,type PointerEvent} from 'react';
+import {GripHorizontal,MoveDiagonal2,X} from 'lucide-react';
+export type BoardNote={id:string;x:number;y:number;width:number;height:number;text:string};
+export function CanvasNote({note,zoom,onChange,onDelete}:{note:BoardNote;zoom:number;onChange:(patch:Partial<BoardNote>)=>void;onDelete:()=>void}){
+ const drag=useRef<{pointer:number;x:number;y:number;note:BoardNote;resize:boolean}|null>(null);
+ function begin(event:PointerEvent<HTMLButtonElement>,resize=false){event.stopPropagation();if(event.button!==0||!event.isPrimary)return;event.currentTarget.focus();event.currentTarget.setPointerCapture(event.pointerId);drag.current={pointer:event.pointerId,x:event.clientX,y:event.clientY,note:{...note},resize};}
+ function move(event:PointerEvent<HTMLButtonElement>){event.stopPropagation();const start=drag.current;if(!start||start.pointer!==event.pointerId)return;const dx=(event.clientX-start.x)/zoom,dy=(event.clientY-start.y)/zoom;onChange(start.resize?{width:Math.max(200,Math.min(800,start.note.width+dx)),height:Math.max(150,Math.min(800,start.note.height+dy))}:{x:start.note.x+dx,y:start.note.y+dy});}
+ function end(event:PointerEvent<HTMLButtonElement>){event.stopPropagation();drag.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);}
+ const gestures={onPointerMove:move,onPointerUp:end,onPointerCancel:end,onLostPointerCapture:(event:PointerEvent<HTMLButtonElement>)=>{event.stopPropagation();drag.current=null;}};
+ return <section className="canvas-note" data-canvas-node aria-label="Sticky note" style={{left:note.x,top:note.y,width:note.width,height:note.height}}>
+  <header><button type="button" className="note-drag" aria-label="Move note" title="Drag to move note" onPointerDown={event=>begin(event)} {...gestures} onKeyDown={event=>{const steps:Record<string,[number,number]>={ArrowLeft:[-10,0],ArrowRight:[10,0],ArrowUp:[0,-10],ArrowDown:[0,10]};if(steps[event.key]){event.preventDefault();event.stopPropagation();const [x,y]=steps[event.key];onChange({x:note.x+x,y:note.y+y});}}}><GripHorizontal size={16}/><span>Note</span></button><button type="button" className="note-delete" aria-label="Delete note" title="Delete note" onPointerDown={event=>event.stopPropagation()} onClick={onDelete}><X size={14}/></button></header>
+  <textarea aria-label="Note text" placeholder="Write a note…" value={note.text} maxLength={10000} spellCheck onChange={event=>onChange({text:event.target.value})} onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()}/>
+  <button type="button" className="note-resize" aria-label="Resize note" title="Drag to resize note" onPointerDown={event=>begin(event,true)} {...gestures} onKeyDown={event=>{const steps:Record<string,[number,number]>={ArrowLeft:[-10,0],ArrowRight:[10,0],ArrowUp:[0,-10],ArrowDown:[0,10]};if(steps[event.key]){event.preventDefault();event.stopPropagation();const [width,height]=steps[event.key];onChange({width:Math.min(800,Math.max(200,note.width+width)),height:Math.min(800,Math.max(150,note.height+height))});}}}><MoveDiagonal2 size={12}/></button>
+ </section>;
+}
