@@ -10,7 +10,13 @@ function object(value:unknown):Record<string,unknown>{return value&&typeof value
 export function parsePreviewRequest(raw:unknown){
  const body=object(raw);const {url,key,table}=body;const page=body.page??0;
  if(typeof url!=='string'||!/^https:\/\/[a-z0-9]{10,40}\.supabase\.co\/?$/.test(url))throw new PreviewError('Enter the HTTPS Project URL from Supabase.');
- if(typeof key!=='string'||key.length<20||key.length>4096||!/^[A-Za-z0-9_.=-]+$/.test(key))throw new PreviewError('Enter a valid Supabase API key.');
+ // Supabase keys can be publishable/secret keys or legacy JWTs. Validate only
+ // the transport-safe shape here; Supabase remains the authority on validity.
+ const hasUnsafeCharacters=typeof key==='string'&&key.split('').some(character=>{
+  const code=character.charCodeAt(0);
+  return code<=32||code>126;
+ });
+ if(typeof key!=='string'||key.length<8||key.length>4096||hasUnsafeCharacters)throw new PreviewError('Enter a valid Supabase API key.');
  if(typeof table!=='string'||!/^([A-Za-z_][A-Za-z0-9_]{0,62}\.)?[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(table))throw new PreviewError('Enter a table name, for example public.outreach_jobs.');
  if(typeof page!=='number'||!Number.isInteger(page)||page<0||page>1000)throw new PreviewError('Invalid page.');
  const [schema,name]=table.includes('.')?table.split('.'):['public',table];

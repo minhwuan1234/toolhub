@@ -762,6 +762,11 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .inspector-select-popup [data-slot='select-item'] { padding:8px 28px 8px 10px; font-size:12px; border-radius:4px; }
 .inspector-select-popup [data-slot='select-item'][data-highlighted],.inspector-select-popup [data-slot='select-item']:hover { background:#f1f0ed; }
 .inspector-data-toolbar .inspector-select { flex:1; min-width:0; }
+.inspector-data-toolbar [data-slot='select-trigger'] { display:flex; width:100%; min-width:0; height:36px; align-items:center; border:1px solid #e4e3de; border-radius:5px; background:#fff; padding:0 10px; color:#37352f; font-size:12px; box-shadow:none; }
+.inspector-data-toolbar [data-slot='select-trigger']:hover { background:#fafaf9; border-color:#c8c6be; }
+.inspector-data-toolbar [data-slot='select-trigger']:focus-visible { outline:1px solid #37352f; border-color:#37352f; }
+.inspector-data-toolbar [data-slot='select-trigger'] [data-slot='select-value'] { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.inspector-field select { appearance:none; background-image:linear-gradient(45deg,transparent 50%,#787774 50%),linear-gradient(135deg,#787774 50%,transparent 50%); background-position:calc(100% - 16px) 17px,calc(100% - 11px) 17px; background-size:5px 5px,5px 5px; background-repeat:no-repeat; }
 .inspector-data-toolbar > button[aria-label='Refresh data'] { flex:0 0 36px; height:36px; }
 .inspector-data-toolbar > button:disabled { opacity:.5; }
 .connection-rows th { white-space:nowrap; }
