@@ -30,6 +30,7 @@ export default function Home() {
   const [notice, setNotice] = useState('');
   const [activeDepartment,setActiveDepartment]=useState<Department>('Account');
   const [activePage,setActivePage]=useState<'toolhub'|'members'|'usage'>('toolhub');
+  const pageBeforeUsage=useRef<'toolhub'|'members'>('toolhub');
   const usage=useUsage(user?.role==='admin');
   const [screen, setScreen] = useState<Screen>('login');
   const [email, setEmail] = useState('');
@@ -129,7 +130,7 @@ export default function Home() {
   }
 
   if (loading) return <main className="loading-state"><output>Loading…</output></main>;
-  if (user) return <WorkspaceShell user={user} active={user.role==='admin'?activePage:'toolhub'} onNavigate={page=>{setError('');setActivePage(user.role==='admin'?page:'toolhub');}} usage={usage.data} onAvatarChanged={image=>setUser(current=>current?{...current,image}:current)} onSignOut={signOut} busy={busy}>
+  if (user) return <WorkspaceShell user={user} active={user.role==='admin'?activePage:'toolhub'} onNavigate={page=>{setError('');if(user.role!=='admin'){setActivePage('toolhub');return;}if(page==='usage'){if(activePage==='usage'){setActivePage(pageBeforeUsage.current);}else{pageBeforeUsage.current=activePage;setActivePage('usage');}}else setActivePage(page);}} usage={usage.data} onAvatarChanged={image=>setUser(current=>current?{...current,image}:current)} onSignOut={signOut} busy={busy}>
     {error && <p className="workspace-error error" role="alert">{error}</p>}
     {activePage==='usage' && user.role==='admin'?<UsagePanel key={usage.data?.periodKey??'pending'} data={usage.data} error={usage.error} loading={usage.loading} onRefresh={usage.refresh}/>:activePage==='members' && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:null}
     <div style={{display:activePage==='toolhub'?'flex':'none',flex:1,minWidth:0}}><DepartmentBoard department={activeDepartment} onDepartmentChange={setActiveDepartment}/></div>
