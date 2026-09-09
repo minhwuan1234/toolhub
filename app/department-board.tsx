@@ -9,6 +9,7 @@ import {departments,type Department} from '@/lib/departments';
 import {DEFAULT_VIEWPORT,MIN_ZOOM,MAX_ZOOM,zoomAt,fitViewport} from '@/lib/canvas-viewport';
 
 import {NodePicker,nodeOptions,type BoardNode,type NodeKind} from './node-picker';
+import {NodeDetails} from './node-details';
 
 function CanvasZone({department}:{department:Department}) {
   const [nodes,setNodes]=useState<BoardNode[]>([]);
@@ -16,10 +17,10 @@ function CanvasZone({department}:{department:Department}) {
   const addButton=useRef<HTMLButtonElement>(null);
   const nodeDrag=useRef<{id:string;pointer:number;x:number;y:number}|null>(null);
   function closePicker(){setPicker(false);addButton.current?.focus();}
-  function addNode(type:NodeKind){
+  function addNode(type:NodeKind,position?:{x:number;y:number}){
     const box=viewport.current?.getBoundingClientRect();if(!box)return;
-    const x=(box.width/2-view.x)/view.zoom-32,y=(box.height/2-view.y)/view.zoom-32;
-    setNodes(current=>{let left=x,top=y;while(current.some(node=>Math.abs(node.x-left)<64&&Math.abs(node.y-top)<64)){left+=80;top+=32;}return [...current,{id:crypto.randomUUID(),type,x:left,y:top}];});
+    const x=((position?.x??box.width/2)-view.x)/view.zoom-72,y=((position?.y??box.height/2)-view.y)/view.zoom-32;
+    setNodes(current=>{let left=x,top=y;while(!position&&current.some(node=>Math.abs(node.x-left)<150&&Math.abs(node.y-top)<130)){left+=160;top+=32;}return [...current,{id:crypto.randomUUID(),type,name:`${nodeOptions.find(option=>option.type===type)!.label} ${current.filter(node=>node.type===type).length+1}`,active:false,x:left,y:top}];});
   }
   const [view,setView]=useState(DEFAULT_VIEWPORT);
   const [dragging,setDragging]=useState(false);
@@ -55,6 +56,8 @@ function CanvasZone({department}:{department:Department}) {
     <div className="canvas-stage">
     <div ref={viewport} className={`toolhub-canvas canvas-viewport ${dragging?'is-dragging':''}`} role="application" tabIndex={0} aria-label={`${department} canvas. Drag to pan. Control or Command plus scroll to zoom. Use plus, minus, or zero keys to zoom or fit.`}
       style={{backgroundSize:`${24*view.zoom}px ${24*view.zoom}px`,backgroundPosition:`${view.x+12*view.zoom}px ${view.y+12*view.zoom}px`}}
+      onDragOver={event=>{if(event.dataTransfer.types.includes('application/x-toolhub-node')){event.preventDefault();event.dataTransfer.dropEffect='copy';}}}
+      onDrop={event=>{const type=event.dataTransfer.getData('application/x-toolhub-node');if(!nodeOptions.some(option=>option.type===type))return;event.preventDefault();const box=event.currentTarget.getBoundingClientRect();addNode(type as NodeKind,{x:event.clientX-box.left,y:event.clientY-box.top});}}
       onPointerDown={event=>{if(event.button!==0||!event.isPrimary)return;event.currentTarget.focus();event.currentTarget.setPointerCapture(event.pointerId);drag.current={id:event.pointerId,x:event.clientX,y:event.clientY};setDragging(true);}}
       onPointerMove={event=>{const previous=drag.current;if(!previous||previous.id!==event.pointerId)return;const x=event.clientX-previous.x,y=event.clientY-previous.y;drag.current={id:event.pointerId,x:event.clientX,y:event.clientY};setView(current=>({...current,x:current.x+x,y:current.y+y}));}}
       onPointerUp={event=>{if(drag.current?.id!==event.pointerId)return;drag.current=null;setDragging(false);if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);}}
@@ -63,13 +66,13 @@ function CanvasZone({department}:{department:Department}) {
       onKeyDown={event=>{if(event.target!==event.currentTarget)return;const directions:Record<string,[number,number]>={ArrowLeft:[40,0],ArrowRight:[-40,0],ArrowUp:[0,40],ArrowDown:[0,-40]};if(directions[event.key]){event.preventDefault();const [x,y]=directions[event.key];setView(current=>({...current,x:current.x+x,y:current.y+y}));}else if(['+','=','-','0','f','F'].includes(event.key)){event.preventDefault();if(['0','f','F'].includes(event.key))fit();else zoom(event.key==='-'?-1:1);}}}>
       <div ref={scene} className="canvas-scene" style={{transform:`translate(${view.x}px, ${view.y}px) scale(${view.zoom})`}}>{nodes.map(node=>{
         const option=nodeOptions.find(item=>item.type===node.type)!;const Icon=option.icon;
-        return <button type="button" key={node.id} data-canvas-node className="canvas-node" style={{left:node.x,top:node.y}} aria-label={`${option.label} node. Drag or use arrow keys to move.`} title={option.label}
+        return <div key={node.id} data-canvas-node className="canvas-node-group" style={{left:node.x,top:node.y}}><button type="button" className="canvas-node" aria-label={`${node.name}. Drag or use arrow keys to move.`} title={node.name}
           onPointerDown={event=>{event.stopPropagation();if(event.button!==0||!event.isPrimary)return;event.currentTarget.focus();event.currentTarget.setPointerCapture(event.pointerId);nodeDrag.current={id:node.id,pointer:event.pointerId,x:event.clientX,y:event.clientY};}}
           onPointerMove={event=>{event.stopPropagation();const previous=nodeDrag.current;if(!previous||previous.pointer!==event.pointerId||previous.id!==node.id)return;const dx=(event.clientX-previous.x)/view.zoom,dy=(event.clientY-previous.y)/view.zoom;nodeDrag.current={...previous,x:event.clientX,y:event.clientY};setNodes(current=>current.map(item=>item.id===node.id?{...item,x:item.x+dx,y:item.y+dy}:item));}}
           onPointerUp={event=>{event.stopPropagation();nodeDrag.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);}}
           onPointerCancel={event=>{event.stopPropagation();nodeDrag.current=null;}}
           onLostPointerCapture={event=>{event.stopPropagation();nodeDrag.current=null;}}
-          onKeyDown={event=>{const delta:Record<string,[number,number]>={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};if(!delta[event.key])return;event.preventDefault();event.stopPropagation();const [dx,dy]=delta[event.key],step=event.shiftKey?40:10;setNodes(current=>current.map(item=>item.id===node.id?{...item,x:item.x+dx*step,y:item.y+dy*step}:item));}}><Icon size={28} strokeWidth={1.6}/></button>;
+          onKeyDown={event=>{const delta:Record<string,[number,number]>={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};if(!delta[event.key])return;event.preventDefault();event.stopPropagation();const [dx,dy]=delta[event.key],step=event.shiftKey?40:10;setNodes(current=>current.map(item=>item.id===node.id?{...item,x:item.x+dx*step,y:item.y+dy*step}:item));}}><Icon size={28} strokeWidth={1.6}/></button><NodeDetails type={node.type} onIconChange={type=>setNodes(current=>current.map(item=>item.id===node.id?{...item,type}:item))} name={node.name} active={node.active} onRename={name=>setNodes(current=>current.map(item=>item.id===node.id?{...item,name}:item))} onToggle={()=>setNodes(current=>current.map(item=>item.id===node.id?{...item,active:!item.active}:item))}/></div>;
       })}</div>
     </div>
     <Button ref={addButton} className="canvas-add" variant="outline" aria-label="Add node" aria-expanded={picker} title="Add node" onClick={()=>setPicker(current=>!current)}><Plus size={22}/></Button>
