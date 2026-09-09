@@ -23,7 +23,7 @@ function CanvasZone({department}:{department:Department}) {
   function addNote(){
     const box=viewport.current?.getBoundingClientRect();if(!box)return;
     const x=(box.width/2-view.x)/view.zoom-140,y=(box.height/2-view.y)/view.zoom-100;
-    setNotes(current=>{let left=x,top=y;while(current.some(note=>Math.abs(note.x-left)<24&&Math.abs(note.y-top)<24)){left+=28;top+=28;}return [...current,{id:crypto.randomUUID(),x:left,y:top,width:280,height:200,text:''}];});
+    setNotes(current=>{let left=x,top=y;while(current.some(note=>Math.abs(note.x-left)<24&&Math.abs(note.y-top)<24)){left+=28;top+=28;}return [...current,{id:crypto.randomUUID(),x:left,y:top,width:280,height:200,text:'',color:'#fff6cf'}];});
   }
   function addNode(type:NodeKind,position?:{x:number;y:number}){
     const box=viewport.current?.getBoundingClientRect();if(!box)return;
