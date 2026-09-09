@@ -681,3 +681,17 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .note-color-palette button:focus-visible { outline:2px solid #37352f; outline-offset:2px; }
 .ticket-coming-soon { margin-left:auto; font-size:10px; color:#91918b; }
 .node-context-menu [data-disabled] { opacity:.5; }
+.connection-hit { fill:none; stroke:transparent; stroke-width:16px; pointer-events:stroke; cursor:pointer; outline:none; }
+.connection-hit:hover ~ .connection-line,.connection-hit:focus-visible ~ .connection-line,.is-selected > .connection-line { stroke:#37352f; stroke-width:2.5; }
+.connection-menu { position:absolute; z-index:20; width:240px; max-width:calc(100% - 16px); padding:5px; background:#fff; color:#37352f; border:1px solid #e5e4df; border-radius:8px; box-shadow:0 5px 18px #00000014; }
+.connection-menu header { display:flex; align-items:center; justify-content:space-between; padding:2px 8px; color:#787774; font-size:11px; }
+.connection-menu button { display:flex; align-items:center; gap:9px; width:100%; border:0; border-radius:4px; background:transparent; color:inherit; text-align:left; padding:6px 8px; font-size:12px; }
+.connection-menu button:hover,.connection-menu button:focus-visible { background:#f1f0ed; }
+.connection-menu header button { width:24px; height:24px; justify-content:center; padding:0; }
+.connection-menu button > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.connection-menu small { color:#91918b; margin-right:8px; font-size:10px; }
+.connection-menu .delete-connection { color:#b42318; margin-top:4px; border-top:1px solid #eeede9; border-radius:0 0 4px 4px; }
+.node-context-menu.node-icon-grid { display:grid; grid-template-columns:repeat(4,34px); gap:4px; min-width:0; padding:8px; }
+.node-icon-grid [role='menuitem'] { display:grid; place-items:center; width:34px; height:34px; padding:0; }
+.node-icon-grid [role='menuitem'][data-selected='true'] { background:#eeede9; box-shadow:inset 0 0 0 1px #d2d0c8; }
+.node-icon-grid [role='menuitem'] svg { width:19px; height:19px; }

@@ -34,7 +34,10 @@ function CanvasZone({department}:{department:Department}) {
   const [dragging,setDragging]=useState(false);
   const viewport=useRef<HTMLDivElement>(null);
   const scene=useRef<HTMLDivElement>(null);
-  const connections=useNodeConnections(nodes,view,viewport);
+  const connections=useNodeConnections(nodes,view,viewport,node=>{
+    const box=viewport.current?.getBoundingClientRect();if(!box)return;
+    setView(current=>({...current,x:box.width/2-(node.x+72)*current.zoom,y:box.height/2-(node.y+60)*current.zoom}));
+  });
   const drag=useRef<{id:number;x:number;y:number}|null>(null);
   function zoom(direction:number) {
     const box=viewport.current?.getBoundingClientRect();if(!box)return;
@@ -85,6 +88,7 @@ function CanvasZone({department}:{department:Department}) {
           onKeyDown={event=>{const delta:Record<string,[number,number]>={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};if(!delta[event.key])return;event.preventDefault();event.stopPropagation();const [dx,dy]=delta[event.key],step=event.shiftKey?40:10;setNodes(current=>current.map(item=>item.id===node.id?{...item,x:item.x+dx*step,y:item.y+dy*step}:item));}}><Icon size={28} strokeWidth={1.6}/></button>{connections.ports(node)}</NodeDetails>;
       })}</div>
     </div>
+    {connections.menu}
     <Button ref={addButton} className="canvas-add" variant="outline" aria-label="Add node" aria-expanded={picker} title="Add node" onClick={()=>setPicker(current=>!current)}><Plus size={19}/></Button>
     <Button className="canvas-add canvas-add-note" variant="outline" aria-label="Add note" title="Add note" onClick={addNote}><StickyNote size={19}/></Button>
     <fieldset className="canvas-controls"><legend className="sr-only">Canvas view controls</legend>
