@@ -8,7 +8,7 @@ import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
 import {departments,type Department} from '@/lib/departments';
 import {DEFAULT_VIEWPORT,MIN_ZOOM,MAX_ZOOM,zoomAt,fitViewport} from '@/lib/canvas-viewport';
 
-import {NodePicker,nodeOptions,type BoardNode,type NodeKind} from './node-picker';
+import {NodePicker,nodeOptions,iconOptions,type BoardNode,type NodeKind} from './node-picker';
 import {NodeDetails} from './node-details';
 import {useNodeConnections} from './node-connections';
 
@@ -21,7 +21,7 @@ function CanvasZone({department}:{department:Department}) {
   function addNode(type:NodeKind,position?:{x:number;y:number}){
     const box=viewport.current?.getBoundingClientRect();if(!box)return;
     const x=((position?.x??box.width/2)-view.x)/view.zoom-72,y=((position?.y??box.height/2)-view.y)/view.zoom-32;
-    setNodes(current=>{let left=x,top=y;while(!position&&current.some(node=>Math.abs(node.x-left)<150&&Math.abs(node.y-top)<130)){left+=160;top+=32;}return [...current,{id:crypto.randomUUID(),type,name:`${nodeOptions.find(option=>option.type===type)!.label} ${current.filter(node=>node.type===type).length+1}`,active:false,x:left,y:top}];});
+    setNodes(current=>{let left=x,top=y;while(!position&&current.some(node=>Math.abs(node.x-left)<150&&Math.abs(node.y-top)<130)){left+=160;top+=32;}return [...current,{id:crypto.randomUUID(),type,icon:type,name:`${nodeOptions.find(option=>option.type===type)!.label} ${current.filter(node=>node.type===type).length+1}`,active:false,x:left,y:top}];});
   }
   const [view,setView]=useState(DEFAULT_VIEWPORT);
   const [dragging,setDragging]=useState(false);
@@ -67,8 +67,8 @@ function CanvasZone({department}:{department:Department}) {
       onLostPointerCapture={()=>{drag.current=null;setDragging(false);}}
       onKeyDown={event=>{if(event.target!==event.currentTarget)return;const directions:Record<string,[number,number]>={ArrowLeft:[40,0],ArrowRight:[-40,0],ArrowUp:[0,40],ArrowDown:[0,-40]};if(directions[event.key]){event.preventDefault();const [x,y]=directions[event.key];setView(current=>({...current,x:current.x+x,y:current.y+y}));}else if(['+','=','-','0','f','F'].includes(event.key)){event.preventDefault();if(['0','f','F'].includes(event.key))fit();else zoom(event.key==='-'?-1:1);}}}>
       <div ref={scene} className="canvas-scene" style={{transform:`translate(${view.x}px, ${view.y}px) scale(${view.zoom})`}}>{connections.layer}{nodes.map(node=>{
-        const option=nodeOptions.find(item=>item.type===node.type)!;const Icon=option.icon;
-        return <NodeDetails type={node.type} onIconChange={type=>setNodes(current=>current.map(item=>item.id===node.id?{...item,type}:item))} name={node.name} active={node.active} onRename={name=>setNodes(current=>current.map(item=>item.id===node.id?{...item,name}:item))} onToggle={()=>setNodes(current=>current.map(item=>item.id===node.id?{...item,active:!item.active}:item))} key={node.id} x={node.x} y={node.y}><button type="button" className="canvas-node" aria-label={`${node.name}. Drag or use arrow keys to move.`} title={node.name}
+        const option=iconOptions.find(item=>item.type===node.icon)!;const Icon=option.icon;
+        return <NodeDetails icon={node.icon} onIconChange={icon=>setNodes(current=>current.map(item=>item.id===node.id?{...item,icon}:item))} name={node.name} active={node.active} onRename={name=>setNodes(current=>current.map(item=>item.id===node.id?{...item,name}:item))} onToggle={()=>setNodes(current=>current.map(item=>item.id===node.id?{...item,active:!item.active}:item))} key={node.id} x={node.x} y={node.y}><button type="button" className="canvas-node" aria-label={`${node.name}. Drag or use arrow keys to move.`} title={node.name}
           onPointerDown={event=>{event.stopPropagation();if(event.button!==0||!event.isPrimary)return;event.currentTarget.focus();event.currentTarget.setPointerCapture(event.pointerId);nodeDrag.current={id:node.id,pointer:event.pointerId,x:event.clientX,y:event.clientY};}}
           onPointerMove={event=>{event.stopPropagation();const previous=nodeDrag.current;if(!previous||previous.pointer!==event.pointerId||previous.id!==node.id)return;const dx=(event.clientX-previous.x)/view.zoom,dy=(event.clientY-previous.y)/view.zoom;nodeDrag.current={...previous,x:event.clientX,y:event.clientY};setNodes(current=>current.map(item=>item.id===node.id?{...item,x:item.x+dx,y:item.y+dy}:item));}}
           onPointerUp={event=>{event.stopPropagation();nodeDrag.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);}}

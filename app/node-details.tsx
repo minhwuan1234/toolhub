@@ -2,8 +2,8 @@
 import {useRef,useState,type ReactNode} from 'react';
 import {Pencil,Shapes,Power,Check} from 'lucide-react';
 import {ContextMenu,ContextMenuTrigger,ContextMenuContent,ContextMenuItem,ContextMenuSub,ContextMenuSubTrigger,ContextMenuSubContent} from '@/components/ui/context-menu';
-import {nodeOptions,type NodeKind} from './node-picker';
-export function NodeDetails({name,active,onRename,onToggle,type,onIconChange,x,y,children}:{x:number;y:number;children:ReactNode;type:NodeKind;onIconChange:(type:NodeKind)=>void;name:string;active:boolean;onRename:(name:string)=>void;onToggle:()=>void}){
+import {iconOptions,type NodeIcon} from './node-picker';
+export function NodeDetails({name,active,onRename,onToggle,icon,onIconChange,x,y,children}:{x:number;y:number;children:ReactNode;icon:NodeIcon;onIconChange:(icon:NodeIcon)=>void;name:string;active:boolean;onRename:(name:string)=>void;onToggle:()=>void}){
  const [editing,setEditing]=useState(false),[draft,setDraft]=useState(name);
  const cancel=useRef(false);
  const input=useRef<HTMLInputElement>(null);
@@ -18,7 +18,7 @@ export function NodeDetails({name,active,onRename,onToggle,type,onIconChange,x,y
   </ContextMenuTrigger>
   <ContextMenuContent className="node-context-menu" finalFocus={false} onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()}>
    <ContextMenuItem onClick={()=>{cancel.current=false;setDraft(name);setEditing(true);requestAnimationFrame(()=>{input.current?.focus();input.current?.select();});}}><Pencil/>Rename</ContextMenuItem>
-   <ContextMenuSub><ContextMenuSubTrigger><Shapes/>Change icon</ContextMenuSubTrigger><ContextMenuSubContent className="node-context-menu" onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()}>{nodeOptions.map(({type:kind,label,icon:Icon})=><ContextMenuItem key={kind} onClick={()=>onIconChange(kind)}><Icon/>{label}{type===kind&&<Check className="ml-auto"/>}</ContextMenuItem>)}</ContextMenuSubContent></ContextMenuSub>
+   <ContextMenuSub><ContextMenuSubTrigger><Shapes/>Change icon</ContextMenuSubTrigger><ContextMenuSubContent className="node-context-menu" onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()}>{iconOptions.map(({type:kind,label,icon:Icon})=><ContextMenuItem key={kind} onClick={()=>onIconChange(kind)}><Icon/>{label}{icon===kind&&<Check className="ml-auto"/>}</ContextMenuItem>)}</ContextMenuSubContent></ContextMenuSub>
    <ContextMenuItem onClick={onToggle}><Power/>{active?'Set inactive':'Set active'}</ContextMenuItem>
   </ContextMenuContent>
  </ContextMenu>;
