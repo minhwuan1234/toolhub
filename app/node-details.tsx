@@ -1,9 +1,9 @@
 'use client';
 import {useRef,useState,type ReactNode} from 'react';
-import {Pencil,Shapes,Power,Ticket} from 'lucide-react';
+import {Pencil,Shapes,Power,Ticket,Trash2} from 'lucide-react';
 import {ContextMenu,ContextMenuTrigger,ContextMenuContent,ContextMenuItem,ContextMenuSub,ContextMenuSubTrigger,ContextMenuSubContent} from '@/components/ui/context-menu';
 import {iconOptions,type NodeIcon} from './node-picker';
-export function NodeDetails({name,active,onRename,onToggle,icon,onIconChange,x,y,children}:{x:number;y:number;children:ReactNode;icon:NodeIcon;onIconChange:(icon:NodeIcon)=>void;name:string;active:boolean;onRename:(name:string)=>void;onToggle:()=>void}){
+export function NodeDetails({name,active,onRename,onToggle,onDelete,icon,onIconChange,x,y,children}:{x:number;y:number;children:ReactNode;icon:NodeIcon;onIconChange:(icon:NodeIcon)=>void;name:string;active:boolean;onRename:(name:string)=>void;onToggle:()=>void;onDelete:()=>void}){
  const [editing,setEditing]=useState(false),[draft,setDraft]=useState(name);
  const cancel=useRef(false);
  const input=useRef<HTMLInputElement>(null);
@@ -21,6 +21,7 @@ export function NodeDetails({name,active,onRename,onToggle,icon,onIconChange,x,y
    <ContextMenuSub><ContextMenuSubTrigger><Shapes/>Change icon</ContextMenuSubTrigger><ContextMenuSubContent className="node-context-menu node-icon-grid" onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()}>{iconOptions.map(({type:kind,label,icon:Icon})=><ContextMenuItem key={kind} aria-label={label} title={label} data-selected={icon===kind} onClick={()=>onIconChange(kind)}><Icon/></ContextMenuItem>)}</ContextMenuSubContent></ContextMenuSub>
    <ContextMenuItem onClick={onToggle}><Power/>{active?'Set inactive':'Set active'}</ContextMenuItem>
    <ContextMenuItem disabled title="Coming soon"><Ticket/>Write ticket<span className="ticket-coming-soon">Soon</span></ContextMenuItem>
+   <ContextMenuItem variant="destructive" onClick={onDelete}><Trash2/>Delete node<span className="node-delete-shortcut">⌫ / Del</span></ContextMenuItem>
   </ContextMenuContent>
  </ContextMenu>;
 }
