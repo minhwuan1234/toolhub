@@ -754,3 +754,23 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .inspector-data-views .inspector-view-options button { padding:5px 12px; font-size:11px; }
 .inspector-data-pagination { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-top:1px solid #e8e7e3; color:#91918b; font-size:11px; }
 .inspector-data-pagination button { padding:5px 8px; border:1px solid #e4e3de; border-radius:4px; background:transparent; color:#aaa89f; font-size:11px; }
+.node-inspector > [data-slot='dialog-close'] { top:14px; right:14px; width:30px; height:30px; padding:0; display:grid; place-items:center; border-radius:5px; color:#787774; }
+.node-inspector > [data-slot='dialog-close']:hover { background:#f1f0ed; color:#37352f; }
+.node-inspector .inspector-select[data-slot='select-trigger'] { width:100%; height:40px; padding:0 12px; background:#fff; color:#37352f; border:1px solid #deddd8; border-radius:5px; font-size:13px; box-shadow:none; }
+.node-inspector .inspector-select[data-slot='select-trigger']:focus-visible { outline:1px solid #37352f; }
+.inspector-select-popup[data-slot='select-content'] { padding:5px; border:1px solid #e3e2dd; background:#fff; color:#37352f; border-radius:6px; box-shadow:0 5px 18px #00000012; }
+.inspector-select-popup [data-slot='select-item'] { padding:8px 28px 8px 10px; font-size:12px; border-radius:4px; }
+.inspector-select-popup [data-slot='select-item'][data-highlighted],.inspector-select-popup [data-slot='select-item']:hover { background:#f1f0ed; }
+.inspector-data-toolbar .inspector-select { flex:1; min-width:0; }
+.inspector-data-toolbar > button[aria-label='Refresh data'] { flex:0 0 36px; height:36px; }
+.inspector-data-toolbar > button:disabled { opacity:.5; }
+.connection-rows th { white-space:nowrap; }
+.connection-rows td > span { display:block; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.connection-json { white-space:pre; }
+.inspector-data-pagination button:not(:disabled) { cursor:pointer; color:#37352f; background:#fff; }
+.inspector-data-pagination button:not(:disabled):hover { background:#eeede9; }
+.is-loading { animation:preview-spin 1s linear infinite; }
+@keyframes preview-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .is-loading { animation:none; } }
+.node-inspector[data-slot='dialog-content'] { max-width:1800px; }
+.node-inspector.standalone-node[data-slot='dialog-content'] { max-width:1440px; }
