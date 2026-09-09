@@ -131,7 +131,8 @@ export default function Home() {
   if (loading) return <main className="loading-state"><output>Loading…</output></main>;
   if (user) return <WorkspaceShell user={user} active={user.role==='admin'?activePage:'toolhub'} onNavigate={page=>{setError('');setActivePage(user.role==='admin'?page:'toolhub');}} usage={usage.data} onAvatarChanged={image=>setUser(current=>current?{...current,image}:current)} onSignOut={signOut} busy={busy}>
     {error && <p className="workspace-error error" role="alert">{error}</p>}
-    {activePage==='usage' && user.role==='admin'?<UsagePanel key={usage.data?.periodKey??'pending'} data={usage.data} error={usage.error} loading={usage.loading} onRefresh={usage.refresh}/>:activePage==='members' && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:<DepartmentBoard department={activeDepartment} onDepartmentChange={setActiveDepartment}/>}
+    {activePage==='usage' && user.role==='admin'?<UsagePanel key={usage.data?.periodKey??'pending'} data={usage.data} error={usage.error} loading={usage.loading} onRefresh={usage.refresh}/>:activePage==='members' && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:null}
+    <div style={{display:activePage==='toolhub'?'flex':'none',flex:1,minWidth:0}}><DepartmentBoard department={activeDepartment} onDepartmentChange={setActiveDepartment}/></div>
   </WorkspaceShell>;
 
   return (

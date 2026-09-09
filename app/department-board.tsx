@@ -2,13 +2,25 @@
 // This application canvas intentionally accepts focus and keyboard/pointer panning.
 /* oxlint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
 import {useEffect,useRef,useState} from 'react';
-import {Scan,ZoomIn,ZoomOut} from 'lucide-react';
+import {Scan,ZoomIn,ZoomOut,Plus} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
 import {departments,type Department} from '@/lib/departments';
 import {DEFAULT_VIEWPORT,MIN_ZOOM,MAX_ZOOM,zoomAt,fitViewport} from '@/lib/canvas-viewport';
 
+import {NodePicker,nodeOptions,type BoardNode,type NodeKind} from './node-picker';
+
 function CanvasZone({department}:{department:Department}) {
+  const [nodes,setNodes]=useState<BoardNode[]>([]);
+  const [picker,setPicker]=useState(false);
+  const addButton=useRef<HTMLButtonElement>(null);
+  const nodeDrag=useRef<{id:string;pointer:number;x:number;y:number}|null>(null);
+  function closePicker(){setPicker(false);addButton.current?.focus();}
+  function addNode(type:NodeKind){
+    const box=viewport.current?.getBoundingClientRect();if(!box)return;
+    const x=(box.width/2-view.x)/view.zoom-32,y=(box.height/2-view.y)/view.zoom-32;
+    setNodes(current=>{let left=x,top=y;while(current.some(node=>Math.abs(node.x-left)<64&&Math.abs(node.y-top)<64)){left+=80;top+=32;}return [...current,{id:crypto.randomUUID(),type,x:left,y:top}];});
+  }
   const [view,setView]=useState(DEFAULT_VIEWPORT);
   const [dragging,setDragging]=useState(false);
   const viewport=useRef<HTMLDivElement>(null);
@@ -20,7 +32,7 @@ function CanvasZone({department}:{department:Department}) {
   }
   function fit() {
     const box=viewport.current?.getBoundingClientRect();if(!box)return;
-    // Future node elements live in this transformed layer, with canvas-local positions.
+    // Fit includes every icon in this department.
     const nodes=Array.from(scene.current?.querySelectorAll<HTMLElement>('[data-canvas-node]')??[]);
     let bounds=null;
     if(nodes.length){const left=Math.min(...nodes.map(n=>n.offsetLeft)),top=Math.min(...nodes.map(n=>n.offsetTop));bounds={x:left,y:top,width:Math.max(...nodes.map(n=>n.offsetLeft+n.offsetWidth))-left,height:Math.max(...nodes.map(n=>n.offsetTop+n.offsetHeight))-top};}
@@ -38,7 +50,9 @@ function CanvasZone({department}:{department:Department}) {
     element.addEventListener('wheel',wheel,{passive:false});
     return()=>element.removeEventListener('wheel',wheel);
   },[]);
-  return <div className="canvas-zone-frame">
+  return <fieldset className="canvas-zone-frame" aria-label={`${department} board`} onKeyDown={event=>{if(event.key==='Escape'&&picker){event.stopPropagation();closePicker();}}}>
+    <legend className="sr-only">{department} board</legend>
+    <div className="canvas-stage">
     <div ref={viewport} className={`toolhub-canvas canvas-viewport ${dragging?'is-dragging':''}`} role="application" tabIndex={0} aria-label={`${department} canvas. Drag to pan. Control or Command plus scroll to zoom. Use plus, minus, or zero keys to zoom or fit.`}
       style={{backgroundSize:`${24*view.zoom}px ${24*view.zoom}px`,backgroundPosition:`${view.x+12*view.zoom}px ${view.y+12*view.zoom}px`}}
       onPointerDown={event=>{if(event.button!==0||!event.isPrimary)return;event.currentTarget.focus();event.currentTarget.setPointerCapture(event.pointerId);drag.current={id:event.pointerId,x:event.clientX,y:event.clientY};setDragging(true);}}
@@ -47,15 +61,27 @@ function CanvasZone({department}:{department:Department}) {
       onPointerCancel={()=>{drag.current=null;setDragging(false);}}
       onLostPointerCapture={()=>{drag.current=null;setDragging(false);}}
       onKeyDown={event=>{if(event.target!==event.currentTarget)return;const directions:Record<string,[number,number]>={ArrowLeft:[40,0],ArrowRight:[-40,0],ArrowUp:[0,40],ArrowDown:[0,-40]};if(directions[event.key]){event.preventDefault();const [x,y]=directions[event.key];setView(current=>({...current,x:current.x+x,y:current.y+y}));}else if(['+','=','-','0','f','F'].includes(event.key)){event.preventDefault();if(['0','f','F'].includes(event.key))fit();else zoom(event.key==='-'?-1:1);}}}>
-      <div ref={scene} className="canvas-scene" style={{transform:`translate(${view.x}px, ${view.y}px) scale(${view.zoom})`}}/>
+      <div ref={scene} className="canvas-scene" style={{transform:`translate(${view.x}px, ${view.y}px) scale(${view.zoom})`}}>{nodes.map(node=>{
+        const option=nodeOptions.find(item=>item.type===node.type)!;const Icon=option.icon;
+        return <button type="button" key={node.id} data-canvas-node className="canvas-node" style={{left:node.x,top:node.y}} aria-label={`${option.label} node. Drag or use arrow keys to move.`} title={option.label}
+          onPointerDown={event=>{event.stopPropagation();if(event.button!==0||!event.isPrimary)return;event.currentTarget.focus();event.currentTarget.setPointerCapture(event.pointerId);nodeDrag.current={id:node.id,pointer:event.pointerId,x:event.clientX,y:event.clientY};}}
+          onPointerMove={event=>{event.stopPropagation();const previous=nodeDrag.current;if(!previous||previous.pointer!==event.pointerId||previous.id!==node.id)return;const dx=(event.clientX-previous.x)/view.zoom,dy=(event.clientY-previous.y)/view.zoom;nodeDrag.current={...previous,x:event.clientX,y:event.clientY};setNodes(current=>current.map(item=>item.id===node.id?{...item,x:item.x+dx,y:item.y+dy}:item));}}
+          onPointerUp={event=>{event.stopPropagation();nodeDrag.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);}}
+          onPointerCancel={event=>{event.stopPropagation();nodeDrag.current=null;}}
+          onLostPointerCapture={event=>{event.stopPropagation();nodeDrag.current=null;}}
+          onKeyDown={event=>{const delta:Record<string,[number,number]>={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};if(!delta[event.key])return;event.preventDefault();event.stopPropagation();const [dx,dy]=delta[event.key],step=event.shiftKey?40:10;setNodes(current=>current.map(item=>item.id===node.id?{...item,x:item.x+dx*step,y:item.y+dy*step}:item));}}><Icon size={28} strokeWidth={1.6}/></button>;
+      })}</div>
     </div>
+    <Button ref={addButton} className="canvas-add" variant="outline" aria-label="Add node" aria-expanded={picker} title="Add node" onClick={()=>setPicker(current=>!current)}><Plus size={22}/></Button>
     <fieldset className="canvas-controls"><legend className="sr-only">Canvas view controls</legend>
       <Button className="canvas-control" variant="outline" aria-label="Fit screen" title="Fit screen (0)" onClick={fit}><Scan size={19}/></Button>
       <Button className="canvas-control" variant="outline" aria-label="Zoom in" title="Zoom in (+)" disabled={view.zoom>=MAX_ZOOM} onClick={()=>zoom(1)}><ZoomIn size={19}/></Button>
       <Button className="canvas-control" variant="outline" aria-label="Zoom out" title="Zoom out (−)" disabled={view.zoom<=MIN_ZOOM} onClick={()=>zoom(-1)}><ZoomOut size={19}/></Button>
       <output className="canvas-zoom-value" aria-label="Zoom level">{Math.round(view.zoom*100)}%</output>
     </fieldset>
-  </div>;
+    </div>
+    <div className={`node-picker-drawer ${picker?'is-open':''}`} inert={!picker}>{picker&&<NodePicker onSelect={addNode} onClose={closePicker}/>}</div>
+  </fieldset>;
 }
 export function DepartmentBoard({department,onDepartmentChange}:{department:Department;onDepartmentChange:(department:Department)=>void}) {
   return <Tabs className="department-board" value={department} onValueChange={value=>{if(departments.includes(value as Department))onDepartmentChange(value as Department);}}>
