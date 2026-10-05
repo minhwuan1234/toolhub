@@ -2,6 +2,10 @@
 
 Internal account application with email/password registration, login, logout and admin account management. English UI, black primary actions and an animated department diagram.
 
+## AI Agent canvas — current stage
+
+The canvas is now a single workspace without department tabs. It can add an **AI Agent** node, which displays **Chờ thiết lập** and opens a setup-status panel; agent configuration and execution are planned for a later stage. The former Supabase data preview and LinkedIn MCP data tools have been removed. The existing MCP endpoint remains available for Toolhub health and department listing. Account roles and department data remain in place.
+
 ## Railway setup
 
 In the **toolhub** service's Variables tab (not the Postgres service), configure:

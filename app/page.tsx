@@ -15,7 +15,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 import {DepartmentBoard} from './department-board';
-import type {Department} from '@/lib/departments';
 import {UsagePanel,useUsage} from './usage-panel';
 import { WorkspaceShell } from './workspace-shell';
 import { AdminUsers } from './admin-users';
@@ -28,7 +27,6 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
-  const [activeDepartment,setActiveDepartment]=useState<Department>('Account');
   const [activePage,setActivePage]=useState<'toolhub'|'members'|'usage'>('toolhub');
   const pageBeforeUsage=useRef<'toolhub'|'members'>('toolhub');
   const usage=useUsage(user?.role==='admin');
@@ -49,7 +47,6 @@ export default function Home() {
     if (response.status === 401) { setUser(null); setScreen('login'); return; }
     if (!response.ok) throw new Error('Account service is temporarily unavailable.');
     const data = await response.json() as {user:User}; setUser(data.user); setScreen('account');
-    setActiveDepartment(departments.includes(data.user.department as Department)?data.user.department as Department:'Account');
   }
   useEffect(() => {
     Promise.resolve().then(loadSession).catch(e => setError(e.message)).finally(() => setLoading(false));
@@ -133,7 +130,7 @@ export default function Home() {
   if (user) return <WorkspaceShell user={user} active={user.role==='admin'?activePage:'toolhub'} onNavigate={page=>{setError('');if(user.role!=='admin'){setActivePage('toolhub');return;}if(page==='usage'){if(activePage==='usage'){setActivePage(pageBeforeUsage.current);}else{pageBeforeUsage.current=activePage;setActivePage('usage');}}else setActivePage(page);}} usage={usage.data} onAvatarChanged={image=>setUser(current=>current?{...current,image}:current)} onSignOut={signOut} busy={busy}>
     {error && <p className="workspace-error error" role="alert">{error}</p>}
     {activePage==='usage' && user.role==='admin'?<UsagePanel key={usage.data?.periodKey??'pending'} data={usage.data} error={usage.error} loading={usage.loading} onRefresh={usage.refresh}/>:activePage==='members' && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:null}
-    <div style={{display:activePage==='toolhub'?'flex':'none',flex:1,minWidth:0}}><DepartmentBoard department={activeDepartment} onDepartmentChange={setActiveDepartment}/></div>
+    <div style={{display:activePage==='toolhub'?'flex':'none',flex:1,minWidth:0}}><DepartmentBoard/></div>
   </WorkspaceShell>;
 
   return (

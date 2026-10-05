@@ -1,6 +1,7 @@
 'use client';
-import {Box,Database,Globe,FileText,MessageSquare,Workflow,X,Mail,Calendar,Users,Folder,Code,Zap,Server,Shield,ShoppingCart,Image,Video,ChartColumn} from 'lucide-react';
+import {Box,Database,Globe,FileText,MessageSquare,Workflow,X,Mail,Calendar,Users,Folder,Code,Zap,Server,Shield,ShoppingCart,Image,Video,ChartColumn,Bot} from 'lucide-react';
 export const nodeOptions=[
+  {type:'agent',label:'AI Agent',icon:Bot},
   {type:'tool',label:'Tool',icon:Box},
   {type:'database',label:'Database',icon:Database},
   {type:'api',label:'API',icon:Globe},

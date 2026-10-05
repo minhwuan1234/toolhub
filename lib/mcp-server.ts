@@ -1,5 +1,4 @@
 import { timingSafeEqual } from 'node:crypto';
-import { readLinkedInData } from './linkedin-data';
 
 export type JsonRpcRequest = {
   jsonrpc?: string;
@@ -51,21 +50,6 @@ function tools() {
       description: 'Lấy danh sách department hiện có trong Toolhub.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     },
-    {
-      name: 'linkedin_connect_data',
-      description: 'Đọc dữ liệu job và target của chức năng LinkedIn Connect.',
-      inputSchema: { type: 'object', properties: { job_id: { type: 'string' }, limit: { type: 'number', minimum: 1, maximum: 100 } }, additionalProperties: false },
-    },
-    {
-      name: 'linkedin_acceptance_data',
-      description: 'Đọc lịch sử kiểm tra acceptance của LinkedIn.',
-      inputSchema: { type: 'object', properties: { job_id: { type: 'string' }, limit: { type: 'number', minimum: 1, maximum: 100 } }, additionalProperties: false },
-    },
-    {
-      name: 'linkedin_message_data',
-      description: 'Đọc dữ liệu message target và message batch của LinkedIn.',
-      inputSchema: { type: 'object', properties: { limit: { type: 'number', minimum: 1, maximum: 100 } }, additionalProperties: false },
-    },
   ];
 }
 
@@ -80,7 +64,7 @@ export async function handleMcpRequest(input: JsonRpcRequest): Promise<JsonRpcRe
       protocolVersion,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: 'toolhub-mcp', version: '0.1.0' },
-      instructions: 'MCP gateway trung tâm cho các tool được quản lý bởi Toolhub.',
+      instructions: 'MCP gateway của Toolhub. Agent management is pending setup.',
     });
   }
 
@@ -95,14 +79,6 @@ export async function handleMcpRequest(input: JsonRpcRequest): Promise<JsonRpcRe
     }
     if (name === 'toolhub_list_departments') {
       return response(id, { content: [{ type: 'text', text: JSON.stringify(['Account', 'Business Development', 'Production', 'Project Management', 'HR', 'Andy Tran', 'Marketing']) }], isError: false });
-    }
-    if (name === 'linkedin_connect_data' || name === 'linkedin_acceptance_data' || name === 'linkedin_message_data') {
-      try {
-        const data = await readLinkedInData(name, params.arguments && typeof params.arguments === 'object' ? params.arguments as Record<string, unknown> : {});
-        return response(id, { content: [{ type: 'text', text: JSON.stringify(data) }], isError: false });
-      } catch (error) {
-        return response(id, { content: [{ type: 'text', text: error instanceof Error ? error.message : 'LinkedIn database request failed.' }], isError: true });
-      }
     }
     return response(id, { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true });
   }
