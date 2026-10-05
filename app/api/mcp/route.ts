@@ -2,7 +2,7 @@ import { handleMcpRequest, isMcpAuthorized, type JsonRpcRequest } from '@/lib/mc
 
 export async function GET(request: Request) {
   if (!isMcpAuthorized(request)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  return Response.json({ name: 'toolhub-mcp', version: '0.1.0', transport: 'streamable-http', endpoint: '/api/mcp' });
+  return Response.json({ name: 'toolhub-mcp', version: '0.2.0', transport: 'streamable-http', endpoint: '/api/mcp' });
 }
 
 export async function POST(request: Request) {

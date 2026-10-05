@@ -3,7 +3,7 @@ import {useRef,useState,type ReactNode} from 'react';
 import {Pencil,Shapes,Power,Ticket,Trash2} from 'lucide-react';
 import {ContextMenu,ContextMenuTrigger,ContextMenuContent,ContextMenuItem,ContextMenuSub,ContextMenuSubTrigger,ContextMenuSubContent} from '@/components/ui/context-menu';
 import {iconOptions,type NodeIcon} from './node-picker';
-export function NodeDetails({name,active,setupPending,onRename,onToggle,onDelete,icon,onIconChange,x,y,children}:{x:number;y:number;children:ReactNode;icon:NodeIcon;onIconChange:(icon:NodeIcon)=>void;name:string;active:boolean;setupPending?:boolean;onRename:(name:string)=>void;onToggle:()=>void;onDelete:()=>void}){
+export function NodeDetails({name,active,setupPending,statusLabel,managedAgent,onRename,onToggle,onDelete,icon,onIconChange,x,y,children}:{x:number;y:number;children:ReactNode;icon:NodeIcon;onIconChange:(icon:NodeIcon)=>void;name:string;active:boolean;setupPending?:boolean;statusLabel?:string;managedAgent?:boolean;onRename:(name:string)=>void;onToggle:()=>void;onDelete:()=>void}){
  const [editing,setEditing]=useState(false),[draft,setDraft]=useState(name);
  const cancel=useRef(false);
  const input=useRef<HTMLInputElement>(null);
@@ -13,13 +13,13 @@ export function NodeDetails({name,active,setupPending,onRename,onToggle,onDelete
    {children}
    <div className="node-details">
     {editing?<input ref={input} className="node-name-input" aria-label="Node name" maxLength={60} value={draft} onChange={event=>setDraft(event.target.value)} onPointerDown={event=>event.stopPropagation()} onBlur={finish} onKeyDown={event=>{event.stopPropagation();if(event.key==='Enter'){event.preventDefault();finish();}else if(event.key==='Escape'){event.preventDefault();cancel.current=true;setEditing(false);}}}/>:<span className="node-name" title={name}>{name}</span>}
-    <span className={`node-status ${active?'is-active':''}`}><span aria-hidden="true"/>{setupPending?'Chờ thiết lập':active?'Active':'Inactive'}</span>
+    <span className={`node-status ${active?'is-active':''}`}><span aria-hidden="true"/>{statusLabel|| (setupPending?'Setup needed':active?'Active':'Inactive')}</span>
    </div>
   </ContextMenuTrigger>
   <ContextMenuContent className="node-context-menu" finalFocus={false} onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()}>
    <ContextMenuItem onClick={()=>{cancel.current=false;setDraft(name);setEditing(true);requestAnimationFrame(()=>{input.current?.focus();input.current?.select();});}}><Pencil/>Rename</ContextMenuItem>
    <ContextMenuSub><ContextMenuSubTrigger><Shapes/>Change icon</ContextMenuSubTrigger><ContextMenuSubContent className="node-context-menu node-icon-grid" onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()}>{iconOptions.map(({type:kind,label,icon:Icon})=><ContextMenuItem key={kind} aria-label={label} title={label} data-selected={icon===kind} onClick={()=>onIconChange(kind)}><Icon/></ContextMenuItem>)}</ContextMenuSubContent></ContextMenuSub>
-   {!setupPending&&<ContextMenuItem onClick={onToggle}><Power/>{active?'Set inactive':'Set active'}</ContextMenuItem>}
+   {!setupPending&&!managedAgent&&<ContextMenuItem onClick={onToggle}><Power/>{active?'Set inactive':'Set active'}</ContextMenuItem>}
    <ContextMenuItem disabled title="Coming soon"><Ticket/>Write ticket<span className="ticket-coming-soon">Soon</span></ContextMenuItem>
    <ContextMenuItem variant="destructive" onClick={onDelete}><Trash2/>Delete node<span className="node-delete-shortcut">⌫ / Del</span></ContextMenuItem>
   </ContextMenuContent>

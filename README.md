@@ -4,7 +4,9 @@ Internal account application with email/password registration, login, logout and
 
 ## AI Agent canvas — current stage
 
-The canvas is now a single workspace without department tabs. It can add an **AI Agent** node, which displays **Chờ thiết lập** and opens a setup-status panel; agent configuration and execution are planned for a later stage. The former Supabase data preview and LinkedIn MCP data tools have been removed. The existing MCP endpoint remains available for Toolhub health and department listing. Account roles and department data remain in place.
+The canvas is now a single workspace without department tabs. BA, UI/UX, and Developer nodes are shown by default and reflect their chat run status. New **AI Agent** nodes display **Setup needed** until a role is assigned. The former Supabase data preview and LinkedIn MCP data tools have been removed. Account roles and department data remain in place.
+
+The Agent team chat controls three fixed agents: BA, UI/UX, and Developer. It can send a message to one agent or run all three in sequence with handoffs. The central MCP endpoint exposes `agent_team_list`, `agent_run`, and `agent_team_run` for the same agents. Set `OPENAI_API_KEY` on the server to enable them; `AGENT_MODEL` optionally selects the model (default `gpt-5-mini`). Chat messages currently live in browser memory and disappear on refresh.
 
 ## Railway setup
 
