@@ -6,7 +6,7 @@ Internal account application with email/password registration, login, logout and
 
 The canvas is now a single workspace without department tabs. BA, UI/UX, and Developer nodes are shown by default and reflect their chat run status. New **AI Agent** nodes display **Setup needed** until a role is assigned. The former Supabase data preview and LinkedIn MCP data tools have been removed. Account roles and department data remain in place.
 
-The Agent team chat controls three fixed agents: BA, UI/UX, and Developer. It can send a message to one agent or run all three in sequence with handoffs. The central MCP endpoint exposes `agent_team_list`, `agent_run`, and `agent_team_run` for the same agents. Set `OPENAI_API_KEY` on the server to enable them; `AGENT_MODEL` optionally selects the model (default `gpt-5-mini`). Chat messages currently live in browser memory and disappear on refresh.
+The compact Agent team chat floats over the canvas. It controls three fixed agents: BA, UI/UX, and Developer. It can send a message to one agent or run all three in sequence with handoffs. The central MCP endpoint exposes `agent_team_list`, `agent_run`, and `agent_team_run` for the same agents. Set `OPENAI_API_KEY` on the server to enable them; `AGENT_MODEL` optionally selects the model (default `gpt-5-mini`). Chat messages currently live in browser memory and disappear on refresh.
 
 ## Railway setup
 

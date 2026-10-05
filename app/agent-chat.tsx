@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { Bot, Send, Trash2 } from 'lucide-react';
+import { Send } from 'lucide-react';
 import type { AgentId, AgentResult } from '@/lib/agent-team';
 import type { AgentState } from './department-board';
 
@@ -98,33 +98,25 @@ export function AgentChat({ onAgentState, onConfigured }: { onAgentState: (agent
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); }
   }
 
-  return <aside className="agent-chat" aria-label="Agent team chat">
-    <header className="agent-chat-header">
-      <span className="agent-chat-mark"><Bot size={18}/></span>
-      <div><h2>Agent team</h2><p>BA → UI/UX → Developer</p></div>
-      <button type="button" className="agent-chat-clear" aria-label="Clear chat" title="Clear chat" disabled={running || messages.length === 0} onClick={() => setMessages([])}><Trash2 size={17}/></button>
-    </header>
-    <div className="agent-roster" aria-label="Available agents">{agents.map(agent => <span key={agent.id} title={agent.outcome}><i aria-hidden="true"/>{agent.name}</span>)}</div>
-    <div className="agent-chat-messages" role="log" aria-live="polite" aria-relevant="additions text">
-      {loading && <p className="agent-chat-empty">Loading agents…</p>}
-      {setupError && <p className="agent-chat-error" role="alert">{setupError}</p>}
-      {!loading && !setupError && messages.length === 0 && <div className="agent-chat-welcome"><Bot size={24}/><strong>Give the team a task</strong><p>Send a brief to all three agents, or choose one specialist.</p></div>}
+  return <section className="agent-chat" aria-label="Agent team chat">
+    {(messages.length > 0 || activeAgent) && <div className="agent-chat-messages" role="log" aria-live="polite" aria-relevant="additions text">
       {messages.map(message => <article key={message.id} className={`agent-message agent-message-${message.kind}`}>
         <div className="agent-message-author">{message.kind === 'user' ? 'You' : message.kind === 'error' ? 'System' : labels[message.agentId!]}</div>
         <div className="agent-message-text">{message.text}</div>
       </article>)}
       {activeAgent && <div className="agent-chat-working" role="status"><span className="agent-chat-pulse"/>{labels[activeAgent]} is working…</div>}
       <div ref={end}/>
-    </div>
+    </div>}
     <form className="agent-chat-compose" onSubmit={send}>
-      {!loading && !configured && !setupError && <p className="agent-chat-setup">Set OPENAI_API_KEY on the server to enable the agents.</p>}
-      <label htmlFor="agent-target">Send to</label>
-      <select id="agent-target" value={target} disabled={running || loading} onChange={event => setTarget(event.target.value as 'all' | AgentId)}>
-        <option value="all">All agents</option>
-        {agents.map(agent => <option value={agent.id} key={agent.id}>{agent.title}</option>)}
-      </select>
-      <div className="agent-chat-input-wrap"><textarea aria-label="Message to agent team" placeholder="Describe the task for your team…" value={input} onChange={event => setInput(event.target.value)} onKeyDown={onKeyDown} maxLength={4000} rows={3} disabled={running || !configured} /><button type="submit" aria-label="Send message" title="Send message" disabled={running || !configured || input.trim().length < 3}><Send size={17}/></button></div>
-      <small>Enter to send · Shift+Enter for a new line</small>
+      <div className="agent-chat-input-wrap"><textarea aria-label="Message to agent team" placeholder="Ask the agent team…" value={input} onChange={event => setInput(event.target.value)} onKeyDown={onKeyDown} maxLength={4000} rows={2} disabled={running || loading} /><button type="submit" aria-label="Send message" title="Send message" disabled={running || !configured || input.trim().length < 3}><Send size={18}/></button></div>
+      <div className="agent-chat-footer">
+        <span className="agent-chat-status" role={setupError ? 'alert' : undefined} title={!configured && !setupError ? 'Set OPENAI_API_KEY on the server.' : undefined}>{setupError || (!loading && !configured ? 'Model setup needed' : activeAgent ? `${labels[activeAgent]} is working` : '')}</span>
+        <label className="sr-only" htmlFor="agent-target">Send to</label>
+        <select id="agent-target" aria-label="Send to" value={target} disabled={running || loading} onChange={event => setTarget(event.target.value as 'all' | AgentId)}>
+          <option value="all">Auto · all agents</option>
+          {agents.map(agent => <option value={agent.id} key={agent.id}>{agent.title}</option>)}
+        </select>
+      </div>
     </form>
-  </aside>;
+  </section>;
 }
