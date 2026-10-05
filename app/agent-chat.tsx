@@ -1,18 +1,23 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { Send } from 'lucide-react';
+import { ArrowUp, ChevronDown, Code2, ListChecks, Palette, Sparkles } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import type { AgentId, AgentResult } from '@/lib/agent-team';
 import type { AgentState } from './department-board';
 
-type AgentMeta = { id: AgentId; name: string; title: string; outcome: string };
 type ChatMessage = { id: string; kind: 'user' | 'agent' | 'error'; text: string; agentId?: AgentId; name?: string };
 type StreamEvent = { type: 'start'; agentId: AgentId } | { type: 'result'; result: AgentResult } | { type: 'error'; message: string } | { type: 'done' };
 
 const labels: Record<AgentId, string> = { ba: 'BA', designer: 'UI/UX', developer: 'Developer' };
+const targets = [
+  { id: 'all', label: 'Auto', description: 'Send to the full agent team', icon: Sparkles },
+  { id: 'ba', label: 'Business Analyst', description: 'Requirements and acceptance criteria', icon: ListChecks },
+  { id: 'designer', label: 'UI/UX Designer', description: 'Flows and interface decisions', icon: Palette },
+  { id: 'developer', label: 'Developer', description: 'Implementation and validation', icon: Code2 },
+] as const;
 
 export function AgentChat({ onAgentState, onConfigured }: { onAgentState: (agentId: AgentId, state: AgentState) => void; onConfigured: (configured: boolean) => void }) {
-  const [agents, setAgents] = useState<AgentMeta[]>([]);
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [setupError, setSetupError] = useState('');
@@ -27,9 +32,8 @@ export function AgentChat({ onAgentState, onConfigured }: { onAgentState: (agent
     const controller = new AbortController();
     fetch('/api/agent-chat', { cache: 'no-store', signal: controller.signal })
       .then(async response => {
-        const data = await response.json() as { agents?: AgentMeta[]; configured?: boolean; error?: string };
+        const data = await response.json() as { configured?: boolean; error?: string };
         if (!response.ok) throw new Error(data.error || 'Unable to load agents.');
-        setAgents(data.agents || []);
         setConfigured(Boolean(data.configured));
         onConfigured(Boolean(data.configured));
       })
@@ -97,6 +101,8 @@ export function AgentChat({ onAgentState, onConfigured }: { onAgentState: (agent
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); }
   }
+  const selectedTarget = targets.find(option => option.id === target) || targets[0];
+  const SelectedIcon = selectedTarget.icon;
 
   return <section className="agent-chat" aria-label="Agent team chat">
     {(messages.length > 0 || activeAgent) && <div className="agent-chat-messages" role="log" aria-live="polite" aria-relevant="additions text">
@@ -108,14 +114,25 @@ export function AgentChat({ onAgentState, onConfigured }: { onAgentState: (agent
       <div ref={end}/>
     </div>}
     <form className="agent-chat-compose" onSubmit={send}>
-      <div className="agent-chat-input-wrap"><textarea aria-label="Message to agent team" placeholder="Ask the agent team…" value={input} onChange={event => setInput(event.target.value)} onKeyDown={onKeyDown} maxLength={4000} rows={2} disabled={running || loading} /><button type="submit" aria-label="Send message" title="Send message" disabled={running || !configured || input.trim().length < 3}><Send size={18}/></button></div>
+      <textarea className="agent-chat-input" aria-label="Message to agent team" placeholder="Ask the agent team…" value={input} onChange={event => setInput(event.target.value)} onKeyDown={onKeyDown} maxLength={4000} rows={2} disabled={running || loading} />
       <div className="agent-chat-footer">
-        <span className="agent-chat-status" role={setupError ? 'alert' : undefined} title={!configured && !setupError ? 'Set OPENAI_API_KEY on the server.' : undefined}>{setupError || (!loading && !configured ? 'Model setup needed' : activeAgent ? `${labels[activeAgent]} is working` : '')}</span>
-        <label className="sr-only" htmlFor="agent-target">Send to</label>
-        <select id="agent-target" aria-label="Send to" value={target} disabled={running || loading} onChange={event => setTarget(event.target.value as 'all' | AgentId)}>
-          <option value="all">Auto · all agents</option>
-          {agents.map(agent => <option value={agent.id} key={agent.id}>{agent.title}</option>)}
-        </select>
+        <div className="agent-chat-tools">
+          <DropdownMenu>
+            <DropdownMenuTrigger type="button" className="agent-target-trigger" aria-label={`Send to ${selectedTarget.label}`} disabled={running || loading}>
+              <SelectedIcon size={17}/><span>{selectedTarget.label}</span><ChevronDown size={15}/>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="agent-target-menu" side="top" align="start" sideOffset={12}>
+              {targets.map(option => {
+                const Icon = option.icon;
+                return <DropdownMenuItem key={option.id} className="agent-target-option" data-selected={target === option.id} onClick={() => setTarget(option.id)}>
+                  <Icon size={20}/><span><strong>{option.label}</strong><small>{option.description}</small></span>
+                </DropdownMenuItem>;
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <span className="agent-chat-status" role={setupError ? 'alert' : undefined} title={!configured && !setupError ? 'Set OPENAI_API_KEY on the server.' : undefined}>{setupError || (!loading && !configured ? 'Model setup needed' : activeAgent ? `${labels[activeAgent]} is working` : '')}</span>
+        </div>
+        <button className="agent-chat-send" type="submit" aria-label="Send message" title="Send message" disabled={running || !configured || input.trim().length < 3}><ArrowUp size={20}/></button>
       </div>
     </form>
   </section>;

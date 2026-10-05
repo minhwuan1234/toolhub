@@ -107,14 +107,15 @@ function CanvasZone({agentStates,configured}:{agentStates:Record<AgentId,AgentSt
     </div>
     {connections.menu}
     {nodes.filter(node=>node.id===inspecting).map(node=><NodeInspector key={node.id} node={node} incoming={connections.incoming(node.id)} configured={configured} agentState={node.agentId?agentStates[node.agentId]:undefined} onClose={()=>{setInspecting(null);requestAnimationFrame(()=>viewport.current?.focus());}}/>)}
-    <Button ref={addButton} className="canvas-add" variant="outline" aria-label="Add node" aria-expanded={picker} title="Add node" onClick={()=>setPicker(current=>!current)}><Plus size={19}/></Button>
-    <Button className="canvas-add canvas-add-note" variant="outline" aria-label="Add note" title="Add note" onClick={addNote}><StickyNote size={19}/></Button>
-    <fieldset className="canvas-controls"><legend className="sr-only">Canvas view controls</legend>
+    <div className="canvas-toolbar" role="group" aria-label="Canvas tools">
+      <Button ref={addButton} className="canvas-add" variant="outline" aria-label="Add node" aria-expanded={picker} title="Add node" onClick={()=>setPicker(current=>!current)}><Plus size={19}/></Button>
+      <Button className="canvas-add canvas-add-note" variant="outline" aria-label="Add note" title="Add note" onClick={addNote}><StickyNote size={19}/></Button>
+      <span className="canvas-toolbar-divider" aria-hidden="true"/>
       <Button className="canvas-control" variant="outline" aria-label="Fit screen" title="Fit screen (0)" onClick={fit}><Scan size={19}/></Button>
       <Button className="canvas-control" variant="outline" aria-label="Zoom in" title="Zoom in (+)" disabled={view.zoom>=MAX_ZOOM} onClick={()=>zoom(1)}><ZoomIn size={19}/></Button>
       <Button className="canvas-control" variant="outline" aria-label="Zoom out" title="Zoom out (−)" disabled={view.zoom<=MIN_ZOOM} onClick={()=>zoom(-1)}><ZoomOut size={19}/></Button>
       <output className="canvas-zoom-value" aria-label="Zoom level">{Math.round(view.zoom*100)}%</output>
-    </fieldset>
+    </div>
     </div>
     <div className={`node-picker-drawer ${picker?'is-open':''}`} inert={!picker}>{picker&&<NodePicker onSelect={addNode} onClose={closePicker}/>}</div>
   </fieldset>;
