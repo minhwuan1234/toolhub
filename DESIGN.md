@@ -1,6 +1,6 @@
 # Toolhub — Agent workspace design
 
-Version 3.1 · 2026-10-05 · English interface
+Version 3.2 · 2026-10-05 · English interface
 
 ## Current product direction
 
@@ -11,6 +11,7 @@ Toolhub is a canvas workspace for three AI agents: Business Analyst, UI/UX Desig
 - Place Add node, Add note, Fit view, Zoom in, and Zoom out in one vertical toolbar at the canvas's upper right. Separate creation from viewport controls with a subtle divider. Show the current zoom percentage below the controls.
 - New AI Agent nodes immediately open their Agent card and remain in Setup needed until saved.
 - Selecting an AI Agent node opens its Agent card. The card contains name, role, mission, responsibilities, inputs, outputs, collaboration, and an option to use the current Toolhub DESIGN.md guidance. Saving the card activates a custom agent, persists it in the shared workspace, and makes it discoverable by MCP and the chat target menu. Only admins can edit cards; signed-in members can read them.
+- Give the Agent card dialog a height of about 80% of the viewport, capped to fit smaller screens. Scroll the card form within the dialog. Use taller single-line fields and text areas that show several lines of agent instructions without immediate scrolling.
 - The default BA, UI/UX, and Developer nodes use editable cards that reflect their distinct roles. New custom agents start in Setup needed until their card is saved. Custom agent nodes remain after reload; their canvas positions are stored with the cards.
 - Keep the canvas open and quiet, with the three agent nodes visible and a compact chat composer floating near its lower center. Avoid a right-side chat panel.
 

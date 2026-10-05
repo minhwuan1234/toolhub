@@ -37,7 +37,7 @@ export function NodeInspector({ node, incoming, configured, agentState, canManag
   }
 
   return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-    <DialogContent className="node-inspector node-inspector-setup">
+    <DialogContent className={`node-inspector node-inspector-setup${isAgent ? ' node-inspector-agent' : ''}`}>
       <header className="inspector-heading"><span className="inspector-icon"><Icon size={21}/></span><DialogTitle>{isAgent ? 'Agent card' : node.name}</DialogTitle></header>
       <DialogDescription className="sr-only">{isAgent ? 'Describe this agent so MCP can assign tasks to it.' : 'Node details and setup status.'}</DialogDescription>
       {isAgent ? <form className="agent-card-form" onSubmit={save}>
