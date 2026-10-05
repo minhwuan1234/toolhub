@@ -5,7 +5,7 @@ import { handleMcpRequest, isMcpAuthorized } from '../lib/mcp-server';
 test('MCP lists exactly three agents and exposes control tools', async () => {
   const list = await handleMcpRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
   const tools = (list?.result as { tools: Array<{ name: string }> }).tools;
-  assert.deepEqual(tools.filter(tool => tool.name.startsWith('agent_')).map(tool => tool.name), ['agent_team_list', 'agent_run', 'agent_team_run', 'agent_team_parallel_run', 'agent_multi_run']);
+  assert.deepEqual(tools.filter(tool => tool.name.startsWith('agent_')).map(tool => tool.name), ['agent_team_list', 'agent_card_save', 'agent_card_delete', 'agent_run', 'agent_team_run', 'agent_team_parallel_run', 'agent_multi_run']);
   const team = await handleMcpRequest({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'agent_team_list' } });
   const payload = (team?.result as { structuredContent: { agents: Array<{ id: string }> } }).structuredContent;
   assert.deepEqual(payload.agents.map(agent => agent.id), ['ba', 'designer', 'developer']);

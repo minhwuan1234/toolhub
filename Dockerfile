@@ -17,6 +17,7 @@ COPY --from=build --chown=node:node /app/dist/standalone ./
 COPY --from=production-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/scripts ./scripts
 COPY --from=build --chown=node:node /app/db ./db
+COPY --from=build --chown=node:node /app/DESIGN.md ./DESIGN.md
 USER node
 EXPOSE 3000
 CMD ["node", "scripts/start.mjs"]

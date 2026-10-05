@@ -1,4 +1,5 @@
-import { agents, isAgentId, type AgentResult } from '@/lib/agent-team';
+import { agents, type AgentResult } from '@/lib/agent-team';
+import { listAgentCards } from '@/lib/server/agent-cards';
 import { invokeMcpTool } from '@/lib/mcp-server';
 import { getAuth } from '@/lib/server/auth';
 
@@ -10,6 +11,7 @@ export async function GET(request: Request) {
   try {
     if (!await authorized(request)) return Response.json({ error: 'Sign in required.' }, { status: 401 });
     const result = await invokeMcpTool('agent_team_list');
+    if (result.isError) return Response.json({ error: 'Unable to load agents.' }, { status: 503 });
     return Response.json(result.structuredContent, { headers: { 'Cache-Control': 'no-store' } });
   } catch {
     return Response.json({ error: 'Account service is unavailable.' }, { status: 503 });
@@ -27,12 +29,13 @@ export async function POST(request: Request) {
     if (raw.length > 36000) return Response.json({ error: 'Request is too large.' }, { status: 413 });
     const body = JSON.parse(raw) as { message?: unknown; target?: unknown; context?: unknown };
     if (typeof body.message !== 'string' || body.message.trim().length < 3 || body.message.length > 4000) return Response.json({ error: 'Message must be 3–4,000 characters.' }, { status: 400 });
-    if (body.target !== 'all' && !isAgentId(body.target)) return Response.json({ error: 'Choose a valid agent.' }, { status: 400 });
+    const cards = await listAgentCards();
+    if (body.target !== 'all' && !cards.some(card => card.id === body.target)) return Response.json({ error: 'Choose a valid agent.' }, { status: 400 });
     if (body.context !== undefined && (typeof body.context !== 'string' || body.context.length > 12000)) return Response.json({ error: 'Conversation context is too long.' }, { status: 400 });
 
     const message = body.message;
     const context = typeof body.context === 'string' ? body.context : '';
-    const selected = body.target === 'all' ? agents : agents.filter(agent => agent.id === body.target);
+    const selected = body.target === 'all' ? agents : cards.filter(card => card.id === body.target);
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {

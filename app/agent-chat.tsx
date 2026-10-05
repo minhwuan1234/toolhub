@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { ArrowUp, ChevronDown, Code2, ListChecks, Palette, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState, type SyntheticEvent, type KeyboardEvent } from 'react';
+import { ArrowUp, Bot, ChevronDown, Code2, ListChecks, Palette, Sparkles } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import type { AgentId, AgentResult } from '@/lib/agent-team';
 import type { AgentState } from './department-board';
@@ -10,20 +10,17 @@ type ChatMessage = { id: string; kind: 'user' | 'agent' | 'error'; text: string;
 type StreamEvent = { type: 'start'; agentId: AgentId } | { type: 'result'; result: AgentResult } | { type: 'error'; message: string } | { type: 'done' };
 
 const labels: Record<AgentId, string> = { ba: 'BA', designer: 'UI/UX', developer: 'Developer' };
-const targets = [
-  { id: 'all', label: 'Auto', description: 'Send to the full agent team', icon: Sparkles },
-  { id: 'ba', label: 'Business Analyst', description: 'Requirements and acceptance criteria', icon: ListChecks },
-  { id: 'designer', label: 'UI/UX Designer', description: 'Flows and interface decisions', icon: Palette },
-  { id: 'developer', label: 'Developer', description: 'Implementation and validation', icon: Code2 },
-] as const;
+type AgentMeta = { id: string; name: string; title: string; outcome: string };
+const icons = { ba: ListChecks, designer: Palette, developer: Code2 };
 
-export function AgentChat({ onAgentState, onConfigured }: { onAgentState: (agentId: AgentId, state: AgentState) => void; onConfigured: (configured: boolean) => void }) {
+export function AgentChat({ onAgentState, onConfigured, refreshKey }: { onAgentState: (agentId: AgentId, state: AgentState) => void; onConfigured: (configured: boolean) => void; refreshKey: number }) {
+  const [agents, setAgents] = useState<AgentMeta[]>([]);
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [setupError, setSetupError] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [target, setTarget] = useState<'all' | AgentId>('all');
+  const [target, setTarget] = useState<AgentId>('all');
   const [running, setRunning] = useState(false);
   const [activeAgent, setActiveAgent] = useState<AgentId | null>(null);
   const end = useRef<HTMLDivElement>(null);
@@ -32,19 +29,22 @@ export function AgentChat({ onAgentState, onConfigured }: { onAgentState: (agent
     const controller = new AbortController();
     fetch('/api/agent-chat', { cache: 'no-store', signal: controller.signal })
       .then(async response => {
-        const data = await response.json() as { configured?: boolean; error?: string };
+        const data = await response.json() as { agents?: AgentMeta[]; configured?: boolean; error?: string };
         if (!response.ok) throw new Error(data.error || 'Unable to load agents.');
+        setSetupError('');
+        setAgents(data.agents || []);
+        setTarget(current => current === 'all' || data.agents?.some(agent => agent.id === current) ? current : 'all');
         setConfigured(Boolean(data.configured));
         onConfigured(Boolean(data.configured));
       })
       .catch(error => { if (!controller.signal.aborted) setSetupError(error instanceof Error ? error.message : 'Unable to load agents.'); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, []);
+  }, [refreshKey, onConfigured]);
 
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [messages, activeAgent]);
 
-  async function send(event?: FormEvent<HTMLFormElement>) {
+  async function send(event?: SyntheticEvent<HTMLFormElement>) {
     event?.preventDefault();
     const text = input.trim();
     if (!text || running || !configured) return;
@@ -101,16 +101,21 @@ export function AgentChat({ onAgentState, onConfigured }: { onAgentState: (agent
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send(); }
   }
+  const targets = [
+    { id: 'all', label: 'Auto', description: 'Send to the full agent team', icon: Sparkles },
+    ...agents.map(agent => ({ id: agent.id, label: agent.id.startsWith('custom-') ? agent.name : agent.title, description: agent.outcome, icon: icons[agent.id as keyof typeof icons] || Bot })),
+  ];
   const selectedTarget = targets.find(option => option.id === target) || targets[0];
   const SelectedIcon = selectedTarget.icon;
+  const agentName = (id: string) => agents.find(agent => agent.id === id)?.name || labels[id] || id;
 
   return <section className="agent-chat" aria-label="Agent team chat">
     {(messages.length > 0 || activeAgent) && <div className="agent-chat-messages" role="log" aria-live="polite" aria-relevant="additions text">
       {messages.map(message => <article key={message.id} className={`agent-message agent-message-${message.kind}`}>
-        <div className="agent-message-author">{message.kind === 'user' ? 'You' : message.kind === 'error' ? 'System' : labels[message.agentId!]}</div>
+        <div className="agent-message-author">{message.kind === 'user' ? 'You' : message.kind === 'error' ? 'System' : message.name || agentName(message.agentId!)}</div>
         <div className="agent-message-text">{message.text}</div>
       </article>)}
-      {activeAgent && <div className="agent-chat-working" role="status"><span className="agent-chat-pulse"/>{labels[activeAgent]} is working…</div>}
+      {activeAgent && <output className="agent-chat-working"><span className="agent-chat-pulse"/>{agentName(activeAgent)} is working…</output>}
       <div ref={end}/>
     </div>}
     <form className="agent-chat-compose" onSubmit={send}>
@@ -130,7 +135,7 @@ export function AgentChat({ onAgentState, onConfigured }: { onAgentState: (agent
               })}
             </DropdownMenuContent>
           </DropdownMenu>
-          <span className="agent-chat-status" role={setupError ? 'alert' : undefined} title={!configured && !setupError ? 'Set OPENAI_API_KEY on the server.' : undefined}>{setupError || (!loading && !configured ? 'Model setup needed' : activeAgent ? `${labels[activeAgent]} is working` : '')}</span>
+          <span className="agent-chat-status" role={setupError ? 'alert' : undefined} title={!configured && !setupError ? 'Set OPENAI_API_KEY on the server.' : undefined}>{setupError || (!loading && !configured ? 'Model setup needed' : activeAgent ? `${agentName(activeAgent)} is working` : '')}</span>
         </div>
         <button className="agent-chat-send" type="submit" aria-label="Send message" title="Send message" disabled={running || !configured || input.trim().length < 3}><ArrowUp size={20}/></button>
       </div>

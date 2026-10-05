@@ -1,6 +1,7 @@
 'use client';
 import {Box,Database,Globe,FileText,MessageSquare,Workflow,X,Mail,Calendar,Users,Folder,Code,Zap,Server,Shield,ShoppingCart,Image,Video,ChartColumn,Bot} from 'lucide-react';
 import type { AgentId } from '@/lib/agent-team';
+import type { AgentCard } from '@/lib/agent-cards';
 export const nodeOptions=[
   {type:'agent',label:'AI Agent',icon:Bot},
   {type:'tool',label:'Tool',icon:Box},
@@ -27,7 +28,7 @@ export const iconOptions=[
 ] as const;
 export type NodeKind=typeof nodeOptions[number]['type'];
 export type NodeIcon=typeof iconOptions[number]['type'];
-export type BoardNode={id:string;type:NodeKind;icon:NodeIcon;name:string;active:boolean;x:number;y:number;agentId?:AgentId};
-export function NodePicker({onSelect,onClose}:{onSelect:(kind:NodeKind)=>void;onClose:()=>void}){
- return <aside className="node-picker" aria-label="Add node"><header><h2>Add node</h2><button type="button" aria-label="Close node picker" onClick={onClose}><X size={18}/></button></header><div className="node-picker-options">{nodeOptions.map(({type,label,icon:Icon})=><button type="button" key={type} draggable onDragStart={event=>{event.dataTransfer.setData('application/x-toolhub-node',type);event.dataTransfer.effectAllowed='copy';}} onClick={()=>onSelect(type)}><span><Icon size={22}/></span>{label}</button>)}</div></aside>;
+export type BoardNode={id:string;type:NodeKind;icon:NodeIcon;name:string;active:boolean;x:number;y:number;agentId?:AgentId;card?:AgentCard};
+export function NodePicker({onSelect,onClose,canAddAgent}:{onSelect:(kind:NodeKind)=>void;onClose:()=>void;canAddAgent:boolean}){
+ return <aside className="node-picker" aria-label="Add node"><header><h2>Add node</h2><button type="button" aria-label="Close node picker" onClick={onClose}><X size={18}/></button></header><div className="node-picker-options">{nodeOptions.map(({type,label,icon:Icon})=><button type="button" key={type} draggable={type!=='agent'||canAddAgent} disabled={type==='agent'&&!canAddAgent} title={type==='agent'&&!canAddAgent?'Admin access required':undefined} onDragStart={event=>{event.dataTransfer.setData('application/x-toolhub-node',type);event.dataTransfer.effectAllowed='copy';}} onClick={()=>onSelect(type)}><span><Icon size={22}/></span>{label}</button>)}</div></aside>;
 }

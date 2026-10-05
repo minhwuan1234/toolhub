@@ -33,6 +33,7 @@ export default function Home() {
   const [activePage,setActivePage]=useState<'toolhub'|'members'|'usage'>('toolhub');
   const [modelConfigured,setModelConfigured]=useState(false);
   const [agentStates,setAgentStates]=useState<Record<AgentId,AgentState>>({ba:'ready',designer:'ready',developer:'ready'});
+  const [agentCardsRefreshKey,setAgentCardsRefreshKey]=useState(0);
   const pageBeforeUsage=useRef<'toolhub'|'members'>('toolhub');
   const usage=useUsage(user?.role==='admin');
   const [screen, setScreen] = useState<Screen>('login');
@@ -135,7 +136,7 @@ export default function Home() {
   if (user) return <WorkspaceShell user={user} active={user.role==='admin'?activePage:'toolhub'} onNavigate={page=>{setError('');if(user.role!=='admin'){setActivePage('toolhub');return;}if(page==='usage'){if(activePage==='usage'){setActivePage(pageBeforeUsage.current);}else{pageBeforeUsage.current=activePage;setActivePage('usage');}}else setActivePage(page);}} usage={usage.data} onAvatarChanged={image=>setUser(current=>current?{...current,image}:current)} onSignOut={signOut} busy={busy}>
     {error && <p className="workspace-error error" role="alert">{error}</p>}
     {activePage==='usage' && user.role==='admin'?<UsagePanel key={usage.data?.periodKey??'pending'} data={usage.data} error={usage.error} loading={usage.loading} onRefresh={usage.refresh}/>:activePage==='members' && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:null}
-    <div className="toolhub-workspace" style={{display:activePage==='toolhub'?'flex':'none'}}><DepartmentBoard agentStates={agentStates} configured={modelConfigured}/><AgentChat onConfigured={setModelConfigured} onAgentState={(agentId,state)=>setAgentStates(current=>({...current,[agentId]:state}))}/></div>
+    <div className="toolhub-workspace" style={{display:activePage==='toolhub'?'flex':'none'}}><DepartmentBoard agentStates={agentStates} configured={modelConfigured} canManageAgents={user.role==='admin'} onAgentCardsChanged={()=>setAgentCardsRefreshKey(current=>current+1)}/><AgentChat refreshKey={agentCardsRefreshKey} onConfigured={setModelConfigured} onAgentState={(agentId,state)=>setAgentStates(current=>({...current,[agentId]:state}))}/></div>
   </WorkspaceShell>;
 
   return (

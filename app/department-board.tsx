@@ -6,6 +6,7 @@ import {Scan,ZoomIn,ZoomOut,Plus,StickyNote} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {DEFAULT_VIEWPORT,MIN_ZOOM,MAX_ZOOM,zoomAt,fitViewport} from '@/lib/canvas-viewport';
 import type { AgentId } from '@/lib/agent-team';
+import { defaultAgentCards, type AgentCard } from '@/lib/agent-cards';
 
 import {NodePicker,nodeOptions,iconOptions,type BoardNode,type NodeKind} from './node-picker';
 import {NodeDetails} from './node-details';
@@ -14,18 +15,31 @@ import {CanvasNote,type BoardNote} from './canvas-note';
 import {NodeInspector} from './node-inspector';
 
 export type AgentState = 'ready' | 'working' | 'complete' | 'error';
-const initialAgentNodes: BoardNode[] = [
-  { id: 'team-ba', type: 'agent', icon: 'agent', agentId: 'ba', name: 'BA Agent', active: true, x: 60, y: 220 },
-  { id: 'team-designer', type: 'agent', icon: 'agent', agentId: 'designer', name: 'UI/UX Agent', active: true, x: 265, y: 220 },
-  { id: 'team-developer', type: 'agent', icon: 'agent', agentId: 'developer', name: 'Developer Agent', active: true, x: 470, y: 220 },
-];
+const initialAgentNodes: BoardNode[] = defaultAgentCards.map(card => ({ id: card.id, type: 'agent', icon: 'agent', agentId: card.id, name: card.name, active: true, x: card.x, y: card.y, card }));
 
-function CanvasZone({agentStates,configured}:{agentStates:Record<AgentId,AgentState>;configured:boolean}) {
+function CanvasZone({agentStates,configured,canManageAgents,onAgentCardsChanged}:{agentStates:Record<AgentId,AgentState>;configured:boolean;canManageAgents:boolean;onAgentCardsChanged:()=>void}) {
   const [inspecting,setInspecting]=useState<string|null>(null);
   const clickStart=useRef<{x:number;y:number}|null>(null);
   const didDrag=useRef(false);
   const [notes,setNotes]=useState<BoardNote[]>([]);
   const [nodes,setNodes]=useState<BoardNode[]>(initialAgentNodes);
+  const nodesRef=useRef(nodes);
+  useEffect(()=>{nodesRef.current=nodes;},[nodes]);
+  const [boardError,setBoardError]=useState('');
+  const [cardsLoaded,setCardsLoaded]=useState(false);
+  useEffect(()=>{
+    const controller=new AbortController();
+    fetch('/api/agent-cards',{cache:'no-store',signal:controller.signal}).then(async response=>{
+      const data=await response.json() as {cards?:AgentCard[];error?:string};
+      if(!response.ok||!data.cards)throw new Error(data.error||'Unable to load agent cards.');
+      setCardsLoaded(true);
+      setNodes(current=>{
+        const other=current.filter(node=>node.type!=='agent'||!node.agentId);
+        return [...data.cards!.map(card=>({id:card.id,type:'agent' as const,icon:'agent' as const,agentId:card.id,name:card.name,active:true,x:card.x,y:card.y,card})),...other];
+      });
+    }).catch(error=>{if(!controller.signal.aborted)setBoardError(error instanceof Error?error.message:'Unable to load agent cards.');});
+    return()=>controller.abort();
+  },[]);
   const [picker,setPicker]=useState(false);
   const addButton=useRef<HTMLButtonElement>(null);
   const nodeDrag=useRef<{id:string;pointer:number;x:number;y:number}|null>(null);
@@ -36,9 +50,12 @@ function CanvasZone({agentStates,configured}:{agentStates:Record<AgentId,AgentSt
     setNotes(current=>{let left=x,top=y;while(current.some(note=>Math.abs(note.x-left)<24&&Math.abs(note.y-top)<24)){left+=28;top+=28;}return [...current,{id:crypto.randomUUID(),x:left,y:top,width:280,height:200,text:'',color:'#fff6cf'}];});
   }
   function addNode(type:NodeKind,position?:{x:number;y:number}){
+    if(type==='agent'&&!canManageAgents)return;
     const box=viewport.current?.getBoundingClientRect();if(!box)return;
     const x=((position?.x??box.width/2)-view.x)/view.zoom-72,y=((position?.y??box.height/2)-view.y)/view.zoom-32;
-    setNodes(current=>{let left=x,top=y;while(!position&&current.some(node=>Math.abs(node.x-left)<150&&Math.abs(node.y-top)<130)){left+=160;top+=32;}return [...current,{id:crypto.randomUUID(),type,icon:type,name:`${nodeOptions.find(option=>option.type===type)!.label} ${current.filter(node=>node.type===type).length+1}`,active:false,x:left,y:top}];});
+    const id=type==='agent'?`custom-${crypto.randomUUID()}`:crypto.randomUUID();
+    setNodes(current=>{let left=x,top=y;while(!position&&current.some(node=>Math.abs(node.x-left)<150&&Math.abs(node.y-top)<130)){left+=160;top+=32;}return [...current,{id,type,icon:type,name:`${nodeOptions.find(option=>option.type===type)!.label} ${current.filter(node=>node.type===type).length+1}`,active:false,x:left,y:top}];});
+    if(type==='agent')setInspecting(id);
   }
   const [view,setView]=useState(DEFAULT_VIEWPORT);
   const [dragging,setDragging]=useState(false);
@@ -49,12 +66,23 @@ function CanvasZone({agentStates,configured}:{agentStates:Record<AgentId,AgentSt
     setView(current=>({...current,x:box.width/2-(node.x+72)*current.zoom,y:box.height/2-(node.y+60)*current.zoom}));
   });
   const drag=useRef<{id:number;x:number;y:number}|null>(null);
-  function deleteNode(id:string){
+  async function deleteNode(id:string){
+    const node=nodesRef.current.find(item=>item.id===id);
+    if(node?.agentId&&id.startsWith('custom-')){
+      try{const response=await fetch(`/api/agent-cards?id=${encodeURIComponent(id)}`,{method:'DELETE'});if(!response.ok){const data=await response.json() as {error?:string};throw new Error(data.error||'Unable to delete agent card.');}onAgentCardsChanged();}
+      catch(error){setBoardError(error instanceof Error?error.message:'Unable to delete agent card.');return;}
+    }
     nodeDrag.current=null;
     if(inspecting===id)setInspecting(null);
     connections.removeNode(id);
     setNodes(current=>current.filter(node=>node.id!==id));
     requestAnimationFrame(()=>viewport.current?.focus());
+  }
+  async function savePosition(id:string){
+    const node=nodesRef.current.find(item=>item.id===id);
+    if(!node?.card||!canManageAgents||node.card.x===node.x&&node.card.y===node.y)return;
+    try{const response=await fetch('/api/agent-cards',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...node.card,x:node.x,y:node.y})});if(!response.ok)throw new Error('Unable to save agent position.');setNodes(current=>current.map(item=>item.id===id&&item.card?{...item,card:{...item.card,x:node.x,y:node.y}}:item));}
+    catch(error){setBoardError(error instanceof Error?error.message:'Unable to save agent position.');}
   }
   function zoom(direction:number) {
     const box=viewport.current?.getBoundingClientRect();if(!box)return;
@@ -96,18 +124,20 @@ function CanvasZone({agentStates,configured}:{agentStates:Record<AgentId,AgentSt
       onKeyDown={event=>{if(event.target!==event.currentTarget)return;const directions:Record<string,[number,number]>={ArrowLeft:[40,0],ArrowRight:[-40,0],ArrowUp:[0,40],ArrowDown:[0,-40]};if(directions[event.key]){event.preventDefault();const [x,y]=directions[event.key];setView(current=>({...current,x:current.x+x,y:current.y+y}));}else if(['+','=','-','0','f','F'].includes(event.key)){event.preventDefault();if(['0','f','F'].includes(event.key))fit();else zoom(event.key==='-'?-1:1);}}}>
       <div ref={scene} className="canvas-scene" style={{transform:`translate(${view.x}px, ${view.y}px) scale(${view.zoom})`}}>{notes.map(note=><CanvasNote key={note.id} note={note} zoom={view.zoom} onChange={patch=>setNotes(current=>current.map(item=>item.id===note.id?{...item,...patch}:item))} onDelete={()=>setNotes(current=>current.filter(item=>item.id!==note.id))}/>)}{connections.layer}{nodes.map(node=>{
         const option=iconOptions.find(item=>item.type===node.icon)!;const Icon=option.icon;
-        return <NodeDetails onDelete={()=>deleteNode(node.id)} icon={node.icon} onIconChange={icon=>setNodes(current=>current.map(item=>item.id===node.id?{...item,icon}:item))} name={node.name} active={node.agentId?configured&&agentStates[node.agentId]!=='error':node.active} setupPending={node.type==='agent'&&!node.agentId} managedAgent={Boolean(node.agentId)} statusLabel={node.agentId?(configured?agentStates[node.agentId][0].toUpperCase()+agentStates[node.agentId].slice(1):'Setup needed'):undefined} onRename={name=>setNodes(current=>current.map(item=>item.id===node.id?{...item,name}:item))} onToggle={()=>setNodes(current=>current.map(item=>item.id===node.id?{...item,active:!item.active}:item))} key={node.id} x={node.x} y={node.y}><button type="button" className="canvas-node" onClick={event=>{if(event.detail===0||!didDrag.current){connections.cancel();setInspecting(node.id);}}} aria-label={`${node.name}. Drag or use arrow keys to move. Backspace or Delete to remove.`} title={node.name}
+        return <NodeDetails onDelete={()=>void deleteNode(node.id)} canDelete={node.type!=='agent'||node.id.startsWith('custom-')&&canManageAgents} icon={node.icon} onIconChange={icon=>setNodes(current=>current.map(item=>item.id===node.id?{...item,icon}:item))} name={node.name} active={node.agentId?configured&&agentStates[node.agentId]!=='error':node.active} setupPending={node.type==='agent'&&!node.agentId} managedAgent={Boolean(node.agentId)} statusLabel={node.agentId?(configured?(agentStates[node.agentId]||'ready').replace(/^./,letter=>letter.toUpperCase()):'Setup needed'):undefined} onRename={name=>setNodes(current=>current.map(item=>item.id===node.id?{...item,name}:item))} onToggle={()=>setNodes(current=>current.map(item=>item.id===node.id?{...item,active:!item.active}:item))} key={node.id} x={node.x} y={node.y}><button type="button" className="canvas-node" onClick={event=>{if(event.detail===0||!didDrag.current){connections.cancel();setInspecting(node.id);}}} aria-label={`${node.name}. Drag or use arrow keys to move. Backspace or Delete to remove.`} title={node.name}
           onPointerDown={event=>{event.stopPropagation();if(event.button!==0||!event.isPrimary)return;event.currentTarget.focus();clickStart.current={x:event.clientX,y:event.clientY};didDrag.current=false;event.currentTarget.setPointerCapture(event.pointerId);nodeDrag.current={id:node.id,pointer:event.pointerId,x:event.clientX,y:event.clientY};}}
           onPointerMove={event=>{event.stopPropagation();const previous=nodeDrag.current;if(!previous||previous.pointer!==event.pointerId||previous.id!==node.id)return;if(clickStart.current&&Math.hypot(event.clientX-clickStart.current.x,event.clientY-clickStart.current.y)>4)didDrag.current=true;const dx=(event.clientX-previous.x)/view.zoom,dy=(event.clientY-previous.y)/view.zoom;nodeDrag.current={...previous,x:event.clientX,y:event.clientY};setNodes(current=>current.map(item=>item.id===node.id?{...item,x:item.x+dx,y:item.y+dy}:item));}}
-          onPointerUp={event=>{event.stopPropagation();nodeDrag.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);}}
+          onPointerUp={event=>{event.stopPropagation();nodeDrag.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);void savePosition(node.id);}}
           onPointerCancel={event=>{event.stopPropagation();nodeDrag.current=null;}}
           onLostPointerCapture={event=>{event.stopPropagation();nodeDrag.current=null;}}
-          onKeyDown={event=>{if(event.key==='Backspace'||event.key==='Delete'){event.preventDefault();event.stopPropagation();if(!event.repeat)deleteNode(node.id);return;}const delta:Record<string,[number,number]>={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};if(!delta[event.key])return;event.preventDefault();event.stopPropagation();const [dx,dy]=delta[event.key],step=event.shiftKey?40:10;setNodes(current=>current.map(item=>item.id===node.id?{...item,x:item.x+dx*step,y:item.y+dy*step}:item));}}><Icon size={28} strokeWidth={1.6}/></button>{connections.ports(node)}</NodeDetails>;
+          onKeyDown={event=>{if(event.key==='Backspace'||event.key==='Delete'){event.preventDefault();event.stopPropagation();if(!event.repeat&&(node.type!=='agent'||node.id.startsWith('custom-')&&canManageAgents))void deleteNode(node.id);return;}const delta:Record<string,[number,number]>={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};if(!delta[event.key])return;event.preventDefault();event.stopPropagation();const [dx,dy]=delta[event.key],step=event.shiftKey?40:10;setNodes(current=>current.map(item=>item.id===node.id?{...item,x:item.x+dx*step,y:item.y+dy*step}:item));}}
+          onKeyUp={event=>{if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))void savePosition(node.id);}}><Icon size={28} strokeWidth={1.6}/></button>{connections.ports(node)}</NodeDetails>;
       })}</div>
     </div>
     {connections.menu}
-    {nodes.filter(node=>node.id===inspecting).map(node=><NodeInspector key={node.id} node={node} incoming={connections.incoming(node.id)} configured={configured} agentState={node.agentId?agentStates[node.agentId]:undefined} onClose={()=>{setInspecting(null);requestAnimationFrame(()=>viewport.current?.focus());}}/>)}
-    <div className="canvas-toolbar" role="group" aria-label="Canvas tools">
+    {nodes.filter(node=>node.id===inspecting&&(node.type!=='agent'||cardsLoaded)).map(node=><NodeInspector key={node.id} node={node} incoming={connections.incoming(node.id)} configured={configured} agentState={node.agentId?agentStates[node.agentId]:undefined} canManageAgents={canManageAgents} onSaved={card=>{setNodes(current=>current.map(item=>item.id===node.id?{...item,agentId:card.id,name:card.name,active:true,card}:item));setInspecting(null);onAgentCardsChanged();}} onClose={()=>{setInspecting(null);requestAnimationFrame(()=>viewport.current?.focus());}}/>)}
+    {boardError&&<p className="canvas-board-error" role="alert">{boardError}<button type="button" onClick={()=>setBoardError('')} aria-label="Dismiss error">×</button></p>}
+    <fieldset className="canvas-toolbar"><legend className="sr-only">Canvas tools</legend>
       <Button ref={addButton} className="canvas-add" variant="outline" aria-label="Add node" aria-expanded={picker} title="Add node" onClick={()=>setPicker(current=>!current)}><Plus size={19}/></Button>
       <Button className="canvas-add canvas-add-note" variant="outline" aria-label="Add note" title="Add note" onClick={addNote}><StickyNote size={19}/></Button>
       <span className="canvas-toolbar-divider" aria-hidden="true"/>
@@ -115,11 +145,11 @@ function CanvasZone({agentStates,configured}:{agentStates:Record<AgentId,AgentSt
       <Button className="canvas-control" variant="outline" aria-label="Zoom in" title="Zoom in (+)" disabled={view.zoom>=MAX_ZOOM} onClick={()=>zoom(1)}><ZoomIn size={19}/></Button>
       <Button className="canvas-control" variant="outline" aria-label="Zoom out" title="Zoom out (−)" disabled={view.zoom<=MIN_ZOOM} onClick={()=>zoom(-1)}><ZoomOut size={19}/></Button>
       <output className="canvas-zoom-value" aria-label="Zoom level">{Math.round(view.zoom*100)}%</output>
+    </fieldset>
     </div>
-    </div>
-    <div className={`node-picker-drawer ${picker?'is-open':''}`} inert={!picker}>{picker&&<NodePicker onSelect={addNode} onClose={closePicker}/>}</div>
+    <div className={`node-picker-drawer ${picker?'is-open':''}`} inert={!picker}>{picker&&<NodePicker onSelect={addNode} onClose={closePicker} canAddAgent={canManageAgents}/>}</div>
   </fieldset>;
 }
-export function DepartmentBoard({agentStates,configured}:{agentStates:Record<AgentId,AgentState>;configured:boolean}) {
-  return <div className="department-board"><CanvasZone agentStates={agentStates} configured={configured}/></div>;
+export function DepartmentBoard({agentStates,configured,canManageAgents,onAgentCardsChanged}:{agentStates:Record<AgentId,AgentState>;configured:boolean;canManageAgents:boolean;onAgentCardsChanged:()=>void}) {
+  return <div className="department-board"><CanvasZone agentStates={agentStates} configured={configured} canManageAgents={canManageAgents} onAgentCardsChanged={onAgentCardsChanged}/></div>;
 }

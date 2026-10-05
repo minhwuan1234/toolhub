@@ -1,6 +1,6 @@
 # Toolhub — Agent workspace design
 
-Version 3.0 · 2026-10-05 · English interface
+Version 3.1 · 2026-10-05 · English interface
 
 ## Current product direction
 
@@ -9,13 +9,15 @@ Toolhub is a canvas workspace for three AI agents: Business Analyst, UI/UX Desig
 ## Canvas
 
 - Place Add node, Add note, Fit view, Zoom in, and Zoom out in one vertical toolbar at the canvas's upper right. Separate creation from viewport controls with a subtle divider. Show the current zoom percentage below the controls.
-- New canvas nodes start in an Agent setup state. Preserve the existing node configuration dialog until the agent setup flow is defined.
+- New AI Agent nodes immediately open their Agent card and remain in Setup needed until saved.
+- Selecting an AI Agent node opens its Agent card. The card contains name, role, mission, responsibilities, inputs, outputs, collaboration, and an option to use the current Toolhub DESIGN.md guidance. Saving the card activates a custom agent, persists it in the shared workspace, and makes it discoverable by MCP and the chat target menu. Only admins can edit cards; signed-in members can read them.
+- The default BA, UI/UX, and Developer nodes use editable cards that reflect their distinct roles. New custom agents start in Setup needed until their card is saved. Custom agent nodes remain after reload; their canvas positions are stored with the cards.
 - Keep the canvas open and quiet, with the three agent nodes visible and a compact chat composer floating near its lower center. Avoid a right-side chat panel.
 
 ## Chat composer and agent menu
 
 - Use a single white rounded composer inspired by the supplied reference: a generous text area above a short tool row, with a dark send button at the lower right. Avoid controls that have no working action.
-- The agent target control sits at the lower left. Its default is Auto, which sends the request to the full team. The user can choose Business Analyst, UI/UX Designer, or Developer.
+- The agent target control sits at the lower left. Its default is Auto, which sends the request to the full team. The user can choose Business Analyst, UI/UX Designer, Developer, or any saved custom agent. Auto runs the three built-in roles in sequence.
 - Open target choices in a floating white menu above the control. Each choice has an icon, a concise name, and a muted one-line description. Give the selected or highlighted choice a soft gray surface. Maintain keyboard navigation and visible focus.
 - Show model setup, loading, and errors only when applicable. Conversation messages appear above the composer; preserve the working agent status and readable agent attribution.
 - Enter sends; Shift+Enter inserts a new line. Disable sending while a request is running or the model is unconfigured.

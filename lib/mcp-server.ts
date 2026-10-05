@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { agents, isAgentId, runAgent, type AgentResult } from './agent-team';
+import { listAgentCards, saveAgentCard, deleteAgentCard } from './server/agent-cards';
 
 export type JsonRpcRequest = {
   jsonrpc?: string;
@@ -53,13 +54,23 @@ function tools() {
     },
     {
       name: 'agent_team_list',
-      description: 'List the three app design agents and whether the model is configured.',
+      description: 'List all configured agent cards, including custom canvas agents, and whether the model is configured.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     },
     {
+      name: 'agent_card_save',
+      description: 'Create or update an agent card in the shared workspace. The saved card becomes callable by agent_run and agent_multi_run.',
+      inputSchema: { type: 'object', properties: { card: { type: 'object', properties: { id: { type: 'string', description: 'Use ba, designer, developer, or custom- followed by a UUID for a new agent.' }, name: { type: 'string' }, role: { type: 'string' }, mission: { type: 'string' }, responsibilities: { type: 'string' }, inputs: { type: 'string' }, outputs: { type: 'string' }, collaboration: { type: 'string' }, useDesignGuidelines: { type: 'boolean' }, x: { type: 'number' }, y: { type: 'number' } }, required: ['id', 'name', 'role', 'mission', 'responsibilities', 'inputs', 'outputs', 'collaboration', 'useDesignGuidelines', 'x', 'y'], additionalProperties: false } }, required: ['card'], additionalProperties: false },
+    },
+    {
+      name: 'agent_card_delete',
+      description: 'Delete a custom agent card and remove it from the shared workspace. Built-in agent cards cannot be deleted.',
+      inputSchema: { type: 'object', properties: { agent_id: { type: 'string' } }, required: ['agent_id'], additionalProperties: false },
+    },
+    {
       name: 'agent_run',
-      description: 'Send a request to one BA, UI/UX, or Developer agent.',
-      inputSchema: { type: 'object', properties: { agent_id: { type: 'string', enum: ['ba', 'designer', 'developer'] }, message: { type: 'string', minLength: 3, maxLength: 4000 }, context: { type: 'string', maxLength: 12000 } }, required: ['agent_id', 'message'], additionalProperties: false },
+      description: 'Send a request to one built-in or custom agent by its ID from agent_team_list.',
+      inputSchema: { type: 'object', properties: { agent_id: { type: 'string' }, message: { type: 'string', minLength: 3, maxLength: 4000 }, context: { type: 'string', maxLength: 12000 } }, required: ['agent_id', 'message'], additionalProperties: false },
     },
     {
       name: 'agent_team_run',
@@ -83,7 +94,7 @@ function tools() {
               type: 'object',
               properties: {
                 task_id: { type: 'string', minLength: 1, maxLength: 64 },
-                agent_id: { type: 'string', enum: ['ba', 'designer', 'developer'] },
+                agent_id: { type: 'string' },
                 message: { type: 'string', minLength: 3, maxLength: 4000 },
                 context: { type: 'string', maxLength: 12000 },
               },
@@ -108,7 +119,20 @@ function toolResult(value: unknown, isError = false): ToolResult {
 export async function invokeMcpTool(name: string, args: Record<string, unknown> = {}): Promise<ToolResult> {
   if (name === 'toolhub_health') return toolResult({ status: 'ok', service: 'toolhub-mcp' });
   if (name === 'toolhub_list_departments') return toolResult(['Account', 'Business Development', 'Production', 'Project Management', 'HR', 'Andy Tran', 'Marketing']);
-  if (name === 'agent_team_list') return toolResult({ agents, configured: Boolean(process.env.OPENAI_API_KEY) });
+  if (name === 'agent_team_list') {
+    try {
+      const cards = await listAgentCards();
+      return toolResult({ agents: cards.map(card => ({ id: card.id, name: card.name, title: card.role, outcome: card.mission })), cards, configured: Boolean(process.env.OPENAI_API_KEY) });
+    } catch { return toolResult({ error: 'Unable to load agent cards.' }, true); }
+  }
+  if (name === 'agent_card_save' || name === 'agent_card_delete') {
+    try {
+      if (name === 'agent_card_save') return toolResult({ card: await saveAgentCard(args.card) });
+      if (typeof args.agent_id !== 'string') throw new Error('agent_id must be a string.');
+      await deleteAgentCard(args.agent_id);
+      return toolResult({ deleted: true, agent_id: args.agent_id });
+    } catch (error) { return toolResult({ error: error instanceof Error ? error.message : 'Agent card operation failed.' }, true); }
+  }
   if (name === 'agent_team_parallel_run') {
     try {
       const message = args.message;
@@ -138,7 +162,7 @@ export async function invokeMcpTool(name: string, args: Record<string, unknown> 
         if (typeof task.task_id !== 'string' || !task.task_id.trim() || task.task_id.length > 64) throw new Error(`tasks[${index}].task_id must be 1–64 characters.`);
         if (taskIds.has(task.task_id)) throw new Error(`Duplicate task_id: ${task.task_id}`);
         taskIds.add(task.task_id);
-        if (!isAgentId(task.agent_id)) throw new Error(`tasks[${index}].agent_id must be ba, designer, or developer.`);
+        if (!isAgentId(task.agent_id)) throw new Error(`tasks[${index}].agent_id is invalid.`);
         if (typeof task.message !== 'string' || task.message.trim().length < 3 || task.message.length > 4000) throw new Error(`tasks[${index}].message must be 3–4,000 characters.`);
         if (task.context !== undefined && (typeof task.context !== 'string' || task.context.length > 12000)) throw new Error(`tasks[${index}].context must be at most 12,000 characters.`);
         return { task_id: task.task_id, agent_id: task.agent_id, message: task.message, context: typeof task.context === 'string' ? task.context : '' };
@@ -162,7 +186,7 @@ export async function invokeMcpTool(name: string, args: Record<string, unknown> 
       if (args.context !== undefined && typeof args.context !== 'string') throw new Error('context must be a string.');
       const context = typeof args.context === 'string' ? args.context : '';
       if (name === 'agent_run') {
-        if (!isAgentId(args.agent_id)) throw new Error('agent_id must be ba, designer, or developer.');
+        if (!isAgentId(args.agent_id)) throw new Error('agent_id is invalid.');
         return toolResult({ result: await runAgent(args.agent_id, args.message, context) });
       }
       const results: AgentResult[] = [];
@@ -188,8 +212,8 @@ export async function handleMcpRequest(input: JsonRpcRequest): Promise<JsonRpcRe
     return response(id, {
       protocolVersion,
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: 'toolhub-mcp', version: '0.3.0' },
-      instructions: 'Toolhub MCP server controls the BA, UI/UX, and Developer agents. Use agent_team_list to inspect them; agent_run for one agent; agent_team_run when downstream agents need upstream handoffs; agent_team_parallel_run when all three can analyze the same request independently; and agent_multi_run for up to six independent tasks with per-task agent assignment. MCP access does not expose the OpenAI API key. Results describe agent output only; do not claim external actions were performed.',
+      serverInfo: { name: 'toolhub-mcp', version: '0.4.0' },
+      instructions: 'Toolhub MCP controls the built-in BA, UI/UX, and Developer agents and any saved custom agent cards. Use agent_team_list to inspect cards and IDs; agent_card_save and agent_card_delete to manage cards; agent_run for one agent; agent_team_run for built-in role handoffs; agent_team_parallel_run for independent built-in analysis; and agent_multi_run for up to six independent tasks assigned to any registered agent. MCP access does not expose the OpenAI API key. Results describe agent output only; do not claim external actions were performed.',
     });
   }
 
