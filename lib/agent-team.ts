@@ -13,6 +13,13 @@ const instructions: Record<AgentId, string> = {
   developer: 'You are the Developer for an app design team. Use the user request and any upstream handoffs to propose concrete components, data and API contracts, an implementation sequence, validation, dependencies, and risks. Do not claim code has been written or tested. Write entirely in English, using clear Markdown headings.',
 };
 
+const sharedModel = process.env.AGENT_MODEL || 'gpt-5.6-luna';
+const models: Record<AgentId, string> = {
+  ba: process.env.AGENT_BA_MODEL || sharedModel,
+  designer: process.env.AGENT_DESIGNER_MODEL || sharedModel,
+  developer: process.env.AGENT_DEVELOPER_MODEL || sharedModel,
+};
+
 export function isAgentId(value: unknown): value is AgentId {
   return agents.some(agent => agent.id === value);
 }
@@ -28,7 +35,7 @@ export async function runAgent(agentId: AgentId, message: string, context = ''):
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: process.env.AGENT_MODEL || 'gpt-5-mini', instructions: instructions[agentId], input, max_output_tokens: 2500, store: false }),
+    body: JSON.stringify({ model: models[agentId], instructions: instructions[agentId], input, max_output_tokens: 2500, store: false }),
     signal: AbortSignal.timeout(90_000),
   });
   const payload = await response.json().catch(() => ({})) as { error?: { message?: string }; output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
