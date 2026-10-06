@@ -1,6 +1,6 @@
 # Toolhub — Agent workspace design
 
-Version 3.3 · 2026-10-05 · English interface
+Version 3.4 · 2026-10-06 · English interface
 
 ## Current product direction
 
@@ -22,6 +22,10 @@ Toolhub is a canvas workspace for three AI agents: Business Analyst, UI/UX Desig
 - Open target choices in a floating white menu above the control. Each choice has an icon, a concise name, and a muted one-line description. Give the selected or highlighted choice a soft gray surface. Maintain keyboard navigation and visible focus.
 - Show model setup, loading, and errors only when applicable. Conversation messages appear above the composer; preserve the working agent status and readable agent attribution.
 - Enter sends; Shift+Enter inserts a new line. Disable sending while a request is running or the model is unconfigured.
+
+## Admin account selectors
+
+- Let account table dropdown menus size to their longest option label so department names remain fully visible. Keep the menu within the viewport on narrow screens.
 
 ## Visual language and responsive behavior
 

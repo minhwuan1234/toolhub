@@ -459,7 +459,7 @@ h1:focus {
 .status-active,.status-active[data-slot='select-trigger'] { background:#edf3ee; color:#477355; }
 .status-disabled[data-slot='select-trigger'] { background:#f3eded; color:#916060; }
 .status-label i { width:5px; height:5px; border-radius:50%; background:currentColor; }
-.account-select-menu { padding:4px; border:1px solid #e9e8e4; border-radius:6px; background:#fff; box-shadow:0 5px 18px #00000012; }
+.account-select-menu[data-slot='select-content'] { width:max-content; min-width:max-content; max-width:calc(100vw - 24px); padding:4px; border:1px solid #e9e8e4; border-radius:6px; background:#fff; box-shadow:0 5px 18px #00000012; }
 .account-select-menu [data-slot='select-item'] { font-size:13px; min-height:32px; border-radius:3px; }
 .joined-date { white-space:nowrap; color:#787774; font-size:12px!important; }
 .row-actions { width:70px; text-align:right; }
