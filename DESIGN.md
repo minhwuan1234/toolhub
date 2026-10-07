@@ -1,6 +1,6 @@
 # Toolhub — Agent workspace design
 
-Version 3.8 · 2026-10-07 · English interface
+Version 3.9 · 2026-10-07 · English interface
 
 ## Current product direction
 
@@ -14,7 +14,7 @@ Toolhub is a canvas workspace for three AI agents: Business Analyst, UI/UX Desig
 - Keep the Agent card header compact: show the current status tag beside the title, with a glowing green indicator when the agent is active. Do not show explanatory intro copy above the form fields.
 - Give the Agent card dialog a width of 60% of the viewport on desktop and about 80% of the viewport height. On narrow screens, let it fill the available width with a small margin. Scroll the card form within the dialog. Use taller single-line fields and text areas that show several lines of agent instructions without immediate scrolling.
 - The default BA, UI/UX, and Developer nodes use editable cards that reflect their distinct roles. New custom agents start in Setup needed until their card is saved. Custom agent nodes remain after reload; their canvas positions are stored with the cards.
-- UI/UX Agent settings open on a Graph tab with an empty node-link canvas and an Add node action. Use Obsidian Graph view as a reference for spreading nodes through an open network space, while keeping Toolhub's light neutral palette and quiet surfaces. Keep node placement and movement on a readable 2D plane, with restrained 3D depth from a subtle perspective grid, layered white surfaces, and soft shadows. Each added node is a numbered blank step that can be moved by drag or keyboard arrows. This first graph draft stores only node IDs and positions in the current browser; it has no node content, links, or execution behavior yet. The existing Agent card fields remain available in a second tab.
+- UI/UX Agent settings open on a Graph tab with an empty node-link canvas and an Add node action. Use Obsidian Graph view as a reference for spreading circular nodes and thin links through an open network space, while keeping Toolhub's light neutral palette and quiet surfaces. Keep node placement and movement on a readable 2D plane, with restrained 3D depth from a subtle perspective grid, layered white surfaces, and soft shadows. Each added node is a numbered blank circle that can be moved by drag or keyboard arrows. Connect mode lets the user select a source and target circle to create a directed link; selecting a link reveals Remove link. This graph draft stores node IDs, positions, and links in the current browser. Node content and execution behavior come later. The existing Agent card fields remain available in a second tab.
 - Keep the canvas open and quiet, with the three agent nodes visible and a compact chat composer floating near its lower center. Avoid a right-side chat panel.
 
 ## Chat composer and agent menu
