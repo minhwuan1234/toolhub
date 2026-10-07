@@ -19,6 +19,8 @@ const fields = [
 export function NodeInspector({ node, incoming, configured, agentState, canManageAgents, onSaved, onClose }: { node: BoardNode; incoming: BoardNode[]; configured: boolean; agentState?: AgentState; canManageAgents: boolean; onSaved: (card: AgentCard) => void; onClose: () => void }) {
   const Icon = iconOptions.find(option => option.type === node.icon)?.icon ?? Bot;
   const isAgent = node.type === 'agent';
+  const active = isAgent && !!node.agentId && configured && agentState !== 'error';
+  const agentStatus = node.agentId ? configured ? `${agentState || 'ready'} · MCP managed` : 'Model setup needed' : 'Agent setup needed';
   const [draft, setDraft] = useState<AgentCard>(node.card ?? { id: node.id, name: node.name, role: '', mission: '', responsibilities: '', inputs: '', outputs: '', collaboration: '', useDesignGuidelines: false, x: node.x, y: node.y });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -38,11 +40,9 @@ export function NodeInspector({ node, incoming, configured, agentState, canManag
 
   return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
     <DialogContent className={`node-inspector node-inspector-setup${isAgent ? ' node-inspector-agent' : ''}`}>
-      <header className="inspector-heading"><span className="inspector-icon"><Icon size={21}/></span><DialogTitle>{isAgent ? 'Agent card' : node.name}</DialogTitle></header>
+      <header className="inspector-heading"><span className="inspector-icon"><Icon size={21}/></span><DialogTitle>{isAgent ? 'Agent card' : node.name}</DialogTitle>{isAgent && <span className="agent-card-status" data-active={active}><i aria-hidden="true"/>{agentStatus}</span>}</header>
       <DialogDescription className="sr-only">{isAgent ? 'Describe this agent so MCP can assign tasks to it.' : 'Node details and setup status.'}</DialogDescription>
       {isAgent ? <form className="agent-card-form" onSubmit={save}>
-        <p className="agent-card-intro">Define this agent’s role, handoffs, and working context. Saving the card makes it available to MCP and chat.</p>
-        <span className="agent-card-status">{node.agentId ? configured ? `${agentState || 'ready'} · MCP managed` : 'Model setup needed' : 'Agent setup needed'}</span>
         {fields.map(field => <label key={field.key} className="agent-card-field">
           <span>{field.label}</span>
           {field.key === 'name' || field.key === 'role' ? <input required maxLength={field.max} disabled={!canManageAgents || saving} value={draft[field.key]} placeholder={field.hint} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))}/> : <textarea required maxLength={field.max} disabled={!canManageAgents || saving} value={draft[field.key]} placeholder={field.hint} rows={field.key === 'responsibilities' ? 3 : 2} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))}/>}

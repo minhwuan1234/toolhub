@@ -689,8 +689,10 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .node-inspector > [data-slot='dialog-close'] { top:14px; right:14px; width:30px; height:30px; padding:0; display:grid; place-items:center; border-radius:5px; color:#787774; }
 .node-inspector > [data-slot='dialog-close']:hover { background:#f1f0ed; color:#37352f; }
 .agent-card-form { display:flex; flex-direction:column; gap:14px; min-height:0; overflow-y:auto; padding:20px 24px 24px; scrollbar-width:thin; }
-.agent-card-intro { margin:0; color:#696761; font-size:13px; line-height:1.5; }
-.agent-card-status { align-self:flex-start; padding:5px 9px; border-radius:8px; background:#f1f0ed; color:#56544f; font-size:12px; }
+.agent-card-status { display:inline-flex; align-items:center; gap:7px; margin-left:auto; padding:5px 9px; border-radius:8px; background:#f1f0ed; color:#56544f; font-size:12px; font-weight:500; white-space:nowrap; }
+.agent-card-status i { width:7px; height:7px; flex:none; border-radius:50%; background:#a4a29a; }
+.agent-card-status[data-active='true'] { background:#edf6ee; color:#356b3e; }
+.agent-card-status[data-active='true'] i { background:#39a852; box-shadow:0 0 0 3px #39a85220,0 0 9px #39a85285; }
 .agent-card-field { display:grid; gap:6px; color:#37352f; font-size:12px; font-weight:600; }
 .agent-card-field input,.agent-card-field textarea { width:100%; min-width:0; padding:9px 11px; border:1px solid #deddd8; border-radius:9px; outline:none; background:#fff; color:#37352f; font:inherit; font-size:13px; font-weight:400; line-height:1.5; resize:vertical; }
 .agent-card-field input { min-height:52px; }
