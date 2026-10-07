@@ -8,8 +8,8 @@ type GraphLink = { id: string; source: string; target: string };
 
 const storageKey = 'toolhub:designer-graph:v2';
 const previousStorageKey = 'toolhub:designer-graph:v1';
-const nodeWidth = 40;
-const nodeHeight = 62;
+const nodeWidth = 28;
+const nodeHeight = 48;
 const nodeRadius = nodeWidth / 2;
 
 function isGraphNode(value: unknown): value is GraphNode {
@@ -45,7 +45,7 @@ function linkPath(source: GraphNode, target: GraphNode) {
   return `M ${x1} ${y1} C ${x1 + horizontalBend} ${y1}, ${x2 - horizontalBend} ${y2}, ${x2} ${y2}`;
 }
 
-export function AgentWorkflowGraph() {
+export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () => void }) {
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [links, setLinks] = useState<GraphLink[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -159,6 +159,7 @@ export function AgentWorkflowGraph() {
   return <section className="workflow-graph" aria-label="UI/UX workflow graph">
     <div className="workflow-graph-toolbar">
       <div><strong>UI/UX workflow</strong><span role="status">{sourceId ? 'Select a target node' : connecting ? 'Select a source node' : `${nodes.length} ${nodes.length === 1 ? 'node' : 'nodes'} · ${links.length} ${links.length === 1 ? 'link' : 'links'} · Drag space to pan`}</span></div>
+      <button type="button" className="workflow-graph-agent-card" onClick={onOpenAgentCard}>Agent card</button>
     </div>
     <div className="workflow-graph-body">
     <div ref={canvasRef} className="workflow-graph-canvas" data-panning={panning} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan}>

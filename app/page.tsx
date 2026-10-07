@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type SyntheticEvent } from 'react';
 import Image from 'next/image';
-import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { ConnectionDiagram, departments } from './connection-diagram';
 import {
   Select,
@@ -139,7 +139,7 @@ export default function Home() {
     {error && <p className="workspace-error error" role="alert">{error}</p>}
     {activePage==='usage' && user.role==='admin'?<UsagePanel key={usage.data?.periodKey??'pending'} data={usage.data} error={usage.error} loading={usage.loading} onRefresh={usage.refresh}/>:activePage==='members' && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:null}
     <div className="toolhub-workspace" style={{display:activePage==='toolhub'?'flex':'none'}}><DepartmentBoard agentStates={agentStates} configured={modelConfigured} canManageAgents={user.role==='admin'} onAgentCardsChanged={()=>setAgentCardsRefreshKey(current=>current+1)} onOpenDesignerGraph={()=>setActivePage('designer-graph')} inspectDesignerCard={inspectDesignerCard} onInspectDesignerCardHandled={()=>setInspectDesignerCard(false)}/><AgentChat refreshKey={agentCardsRefreshKey} onConfigured={setModelConfigured} onAgentState={(agentId,state)=>setAgentStates(current=>({...current,[agentId]:state}))}/></div>
-    {activePage==='designer-graph' && <div className="designer-graph-screen"><header className="designer-graph-heading"><button type="button" onClick={()=>setActivePage('toolhub')}><ArrowLeft size={17}/>Toolhub</button><div><h1>UI/UX Graph</h1><p>Map the designer agent&apos;s workflow.</p></div><button type="button" onClick={()=>{setActivePage('toolhub');setInspectDesignerCard(true);}}>Agent card</button></header><AgentWorkflowGraph/></div>}
+    {activePage==='designer-graph' && <div className="designer-graph-screen"><AgentWorkflowGraph onOpenAgentCard={()=>setInspectDesignerCard(true)}/></div>}
   </WorkspaceShell>;
 
   return (
