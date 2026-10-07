@@ -54,6 +54,7 @@ export function AgentWorkflowGraph() {
   const [selectedLink, setSelectedLink] = useState<string | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const dragRef = useRef<{ id: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
@@ -84,21 +85,23 @@ export function AgentWorkflowGraph() {
   }, [nodes, links, pan, loaded]);
 
   function addNode() {
-    const width = stageRef.current?.clientWidth || 640;
-    const columns = Math.max(1, Math.min(6, Math.floor((width - 40) / 112)));
     setNodes(current => {
       const number = Math.max(0, ...current.map(node => node.number)) + 1;
-      const index = current.length;
-      const column = index % columns;
-      const row = Math.floor(index / columns);
-      const clusterWidth = (columns - 1) * 112 + nodeWidth;
-      const startX = Math.max(20, (width - clusterWidth) / 2 - pan.x);
+      const branchIndex = current.length - 1;
+      const column = Math.floor(branchIndex / 5);
+      const row = branchIndex % 5;
       return [...current, {
         id: crypto.randomUUID(), number,
-        x: startX + column * 112 + (row % 2) * 18,
-        y: Math.max(30, 80 - pan.y + row * 112 + (column % 2) * 22),
+        x: Math.max(24, (current.length === 0 ? 105 : 310 + column * 170) - pan.x),
+        y: Math.max(24, (current.length === 0 ? 206 : 72 + row * 84 + (column % 2) * 20) - pan.y),
       }];
     });
+  }
+
+  function focusNode(node: GraphNode) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setPan({ x: canvas.clientWidth / 2 - node.x - nodeRadius, y: canvas.clientHeight / 2 - node.y - nodeRadius });
   }
 
   function chooseNode(id: string) {
@@ -131,7 +134,7 @@ export function AgentWorkflowGraph() {
   }
 
   const stageHeight = Math.max(440, ...nodes.map(node => node.y + nodeHeight + 28));
-  const stageWidth = Math.max(640, ...nodes.map(node => node.x + nodeWidth + 28));
+  const stageWidth = Math.max(760, ...nodes.map(node => node.x + nodeWidth + 28));
 
   function startPan(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0 || event.target !== event.currentTarget && event.target !== stageRef.current) return;
@@ -156,18 +159,13 @@ export function AgentWorkflowGraph() {
   return <section className="workflow-graph" aria-label="UI/UX workflow graph">
     <div className="workflow-graph-toolbar">
       <div><strong>UI/UX workflow</strong><span role="status">{sourceId ? 'Select a target node' : connecting ? 'Select a source node' : `${nodes.length} ${nodes.length === 1 ? 'node' : 'nodes'} · ${links.length} ${links.length === 1 ? 'link' : 'links'} · Drag space to pan`}</span></div>
-      <div className="workflow-graph-actions">
-        <button type="button" aria-label="Reset graph view" title="Reset view" onClick={() => setPan({ x: 0, y: 0 })}><RotateCcw size={14}/></button>
-        {selectedLink && <button type="button" onClick={() => { setLinks(current => current.filter(link => link.id !== selectedLink)); setSelectedLink(null); }}><Trash2 size={15}/>Remove link</button>}
-        <button type="button" className="workflow-connect-button" aria-pressed={connecting} disabled={!loaded || nodes.length < 2} onClick={() => { draggedRef.current = false; setConnecting(current => !current); setSourceId(null); setSelectedLink(null); }}><Link2 size={16}/>Connect</button>
-        <button type="button" onClick={addNode} disabled={!loaded || nodes.length >= 100}><Plus size={16}/>Add node</button>
-      </div>
     </div>
-    <div className="workflow-graph-canvas" data-panning={panning} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan}>
+    <div className="workflow-graph-body">
+    <div ref={canvasRef} className="workflow-graph-canvas" data-panning={panning} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan}>
       <div ref={stageRef} className="workflow-graph-stage" style={{ minHeight: stageHeight, minWidth: stageWidth, transform: `translate3d(${pan.x}px, ${pan.y}px, 0)` }}>
         {loaded && nodes.length === 0 && <div className="workflow-graph-empty"><span className="workflow-graph-empty-orb"/><strong>Start with a node</strong><span>Use Add node to sketch the UI/UX workflow.</span></div>}
         <svg className="workflow-graph-links" aria-label="Workflow links">
-          <defs><marker id="workflow-link-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9" fill="none" stroke="#aab5c4" strokeWidth="1.5"/></marker></defs>
+          <defs><marker id="workflow-link-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9" fill="none" stroke="#9eb9c6" strokeWidth="1.5"/></marker></defs>
           {links.map(link => {
             const source = nodes.find(node => node.id === link.source);
             const target = nodes.find(node => node.id === link.target);
@@ -180,8 +178,8 @@ export function AgentWorkflowGraph() {
             </g>;
           })}
         </svg>
-        {nodes.map(node => <button
-          key={node.id} type="button" className="workflow-graph-node" data-depth={node.number % 3} data-link-source={sourceId === node.id} data-connecting={connecting} style={{ left: node.x, top: node.y, zIndex: 4 + node.number % 3 }}
+        {nodes.map((node, index) => <button
+          key={node.id} type="button" className="workflow-graph-node" data-root={index === 0} data-link-source={sourceId === node.id} data-connecting={connecting} style={{ left: node.x, top: node.y, zIndex: 4 + node.number % 3 }}
           aria-label={`Node ${node.number}. Drag or use arrow keys to move.`}
           onClick={() => chooseNode(node.id)}
           onPointerDown={event => startDrag(event, node)}
@@ -201,6 +199,17 @@ export function AgentWorkflowGraph() {
           }}
         ><span className="workflow-graph-node-label">Node {node.number}</span></button>)}
       </div>
+    </div>
+    <aside className="workflow-graph-sidebar" aria-label="Graph tools and nodes">
+      <strong>Graph tools</strong>
+      <div className="workflow-graph-actions">
+        <button type="button" onClick={addNode} disabled={!loaded || nodes.length >= 100}><Plus size={16}/>Add node</button>
+        <button type="button" className="workflow-connect-button" aria-pressed={connecting} disabled={!loaded || nodes.length < 2} onClick={() => { draggedRef.current = false; setConnecting(current => !current); setSourceId(null); setSelectedLink(null); }}><Link2 size={16}/>Connect nodes</button>
+        <button type="button" onClick={() => setPan({ x: 0, y: 0 })}><RotateCcw size={14}/>Reset view</button>
+        {selectedLink && <button type="button" onClick={() => { setLinks(current => current.filter(link => link.id !== selectedLink)); setSelectedLink(null); }}><Trash2 size={15}/>Remove link</button>}
+      </div>
+      <div className="workflow-graph-node-list"><strong>Nodes</strong>{nodes.length === 0 ? <span>No nodes yet</span> : nodes.map(node => <button key={node.id} type="button" onClick={() => focusNode(node)}><i aria-hidden="true"/>Node {node.number}</button>)}</div>
+    </aside>
     </div>
   </section>;
 }
