@@ -708,6 +708,31 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .agent-card-save:disabled { opacity:.5; cursor:default; }
 .agent-card-save:focus-visible { outline:2px solid #222; outline-offset:2px; }
 .agent-card-readonly { margin:0; color:#787774; font-size:12px; }
+.agent-settings-tabs { display:flex; flex:none; gap:20px; padding:0 24px; border-bottom:1px solid #e8e7e3; }
+.agent-settings-tabs button { min-height:42px; padding:0 2px; border:0; border-bottom:2px solid transparent; background:none; color:#787774; font-size:13px; font-weight:550; cursor:pointer; }
+.agent-settings-tabs button[aria-current='page'] { border-bottom-color:#37352f; color:#37352f; }
+.agent-settings-tabs button:focus-visible { outline:2px solid #37352f; outline-offset:-3px; }
+.workflow-graph { display:flex; flex:1; flex-direction:column; min-height:0; }
+.workflow-graph-toolbar { display:flex; flex:none; align-items:center; justify-content:space-between; gap:16px; padding:15px 24px; border-bottom:1px solid #e8e7e3; }
+.workflow-graph-toolbar>div { display:flex; align-items:baseline; gap:10px; }
+.workflow-graph-toolbar strong { color:#37352f; font-size:13px; font-weight:600; }
+.workflow-graph-toolbar span { color:#91918b; font-size:12px; }
+.workflow-graph-toolbar button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:34px; padding:0 12px; border:1px solid #dddcd6; border-radius:8px; background:#fff; color:#37352f; font-size:12px; font-weight:600; cursor:pointer; }
+.workflow-graph-toolbar button:hover:not(:disabled) { background:#f5f4f1; }
+.workflow-graph-toolbar button:disabled { opacity:.5; cursor:default; }
+.workflow-graph-toolbar button:focus-visible { outline:2px solid #37352f; outline-offset:2px; }
+.workflow-graph-canvas { flex:1; min-height:0; overflow:auto; background:#fafaf9; }
+.workflow-graph-stage { position:relative; width:100%; min-width:100%; background-image:radial-gradient(#d8d7d2 1px,transparent 1px); background-size:20px 20px; }
+.workflow-graph-empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#aaa9a1; pointer-events:none; text-align:center; }
+.workflow-graph-empty strong { margin-top:5px; color:#57554f; font-size:14px; }
+.workflow-graph-empty span { font-size:12px; }
+.workflow-graph-node { position:absolute; display:flex; align-items:center; justify-content:center; gap:8px; width:160px; height:72px; padding:0 14px; border:1px solid #d9d7d0; border-radius:10px; background:#fff; box-shadow:0 4px 12px #0000000d; color:#37352f; font-size:13px; font-weight:600; cursor:grab; touch-action:none; user-select:none; }
+.workflow-graph-node:active { cursor:grabbing; }
+.workflow-graph-node:focus-visible { outline:2px solid #37352f; outline-offset:3px; }
+.workflow-graph-node>svg { flex:none; color:#8c8a82; }
+.workflow-graph-port { position:absolute; top:50%; width:9px; height:9px; border:2px solid #b9b8b0; border-radius:50%; background:#fff; transform:translateY(-50%); }
+.workflow-graph-port:first-child { left:-5px; }
+.workflow-graph-port:last-child { right:-5px; }
 .canvas-board-error { position:absolute; z-index:21; left:24px; top:24px; display:flex; align-items:center; gap:12px; max-width:calc(100% - 120px); margin:0; padding:10px 12px; border:1px solid #f0c5bd; border-radius:9px; background:#fff4f2; color:#a13427; font-size:12px; box-shadow:0 4px 12px #00000012; }
 .canvas-board-error button { border:0; background:transparent; color:inherit; font-size:18px; cursor:pointer; }
 
@@ -748,4 +773,5 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 @media(max-width:760px) { .agent-chat { bottom:14px; width:calc(100% - 24px); } .agent-chat-messages { max-height:52svh; } .agent-chat-compose { min-height:124px; padding:14px 14px 10px; } .agent-chat-input { min-height:55px; } .agent-chat-status { max-width:120px; } }
 @media(max-width:760px) { .agent-card-form { padding:16px; } .canvas-board-error { left:12px; top:12px; } }
 @media(max-width:760px) { .node-inspector.node-inspector-agent[data-slot='dialog-content'] { width:calc(100vw - 24px); } }
+@media(max-width:760px) { .agent-settings-tabs { padding:0 16px; } .workflow-graph-toolbar { padding:12px 16px; } }
 @media(prefers-reduced-motion:reduce) { .agent-chat-pulse { animation:none; } }

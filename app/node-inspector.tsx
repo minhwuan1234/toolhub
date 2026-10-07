@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 import type { AgentCard } from '@/lib/agent-cards';
 import { iconOptions, type BoardNode } from './node-picker';
 import type { AgentState } from './department-board';
+import { AgentWorkflowGraph } from './agent-workflow-graph';
 
 const fields = [
   { key: 'name', label: 'Agent name', hint: 'Name shown on the canvas and in chat', max: 80 },
@@ -19,11 +20,13 @@ const fields = [
 export function NodeInspector({ node, incoming, configured, agentState, canManageAgents, onSaved, onClose }: { node: BoardNode; incoming: BoardNode[]; configured: boolean; agentState?: AgentState; canManageAgents: boolean; onSaved: (card: AgentCard) => void; onClose: () => void }) {
   const Icon = iconOptions.find(option => option.type === node.icon)?.icon ?? Bot;
   const isAgent = node.type === 'agent';
+  const isDesigner = node.id === 'designer';
   const active = isAgent && !!node.agentId && configured && agentState !== 'error';
   const agentStatus = node.agentId ? configured ? `${agentState || 'ready'} · MCP managed` : 'Model setup needed' : 'Agent setup needed';
   const [draft, setDraft] = useState<AgentCard>(node.card ?? { id: node.id, name: node.name, role: '', mission: '', responsibilities: '', inputs: '', outputs: '', collaboration: '', useDesignGuidelines: false, x: node.x, y: node.y });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [view, setView] = useState<'graph' | 'card'>(isDesigner ? 'graph' : 'card');
 
   async function save(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,7 +45,8 @@ export function NodeInspector({ node, incoming, configured, agentState, canManag
     <DialogContent className={`node-inspector node-inspector-setup${isAgent ? ' node-inspector-agent' : ''}`}>
       <header className="inspector-heading"><span className="inspector-icon"><Icon size={21}/></span><DialogTitle>{isAgent ? 'Agent card' : node.name}</DialogTitle>{isAgent && <span className="agent-card-status" data-active={active}><i aria-hidden="true"/>{agentStatus}</span>}</header>
       <DialogDescription className="sr-only">{isAgent ? 'Describe this agent so MCP can assign tasks to it.' : 'Node details and setup status.'}</DialogDescription>
-      {isAgent ? <form className="agent-card-form" onSubmit={save}>
+      {isDesigner && <nav className="agent-settings-tabs" aria-label="UI/UX agent settings"><button type="button" aria-current={view === 'graph' ? 'page' : undefined} onClick={() => setView('graph')}>Graph</button><button type="button" aria-current={view === 'card' ? 'page' : undefined} onClick={() => setView('card')}>Agent card</button></nav>}
+      {isDesigner && view === 'graph' ? <AgentWorkflowGraph/> : isAgent ? <form className="agent-card-form" onSubmit={save}>
         {fields.map(field => <label key={field.key} className="agent-card-field">
           <span>{field.label}</span>
           {field.key === 'name' || field.key === 'role' ? <input required maxLength={field.max} disabled={!canManageAgents || saving} value={draft[field.key]} placeholder={field.hint} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))}/> : <textarea required maxLength={field.max} disabled={!canManageAgents || saving} value={draft[field.key]} placeholder={field.hint} rows={field.key === 'responsibilities' ? 3 : 2} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))}/>}
