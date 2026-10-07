@@ -743,7 +743,9 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .workflow-graph-link .connection-line { stroke:#b8c8cb; stroke-width:1.5; }
 .workflow-graph-link .connection-motion { stroke:#76b7cb; stroke-width:1.3; opacity:.65; }
 .workflow-graph-link .connection-hit:hover ~ .connection-line,.workflow-graph-link .connection-hit:focus-visible ~ .connection-line,.workflow-graph-link.is-selected > .connection-line { stroke:#5ba7be; stroke-width:2.5; }
-.workflow-graph-node { position:absolute; display:block; width:28px; height:28px; padding:0; border:1px solid #d8dedf; border-radius:50%; background:radial-gradient(circle at 30% 25%,#fff 0%,#fbfbfb 50%,#ecf0f0 100%); box-shadow:0 4px 9px #30465118,inset 0 1px #fff; cursor:grab; touch-action:none; user-select:none; transition:box-shadow .18s ease,filter .18s ease; }
+.workflow-graph-node { position:absolute; display:grid; place-items:center; width:28px; height:28px; padding:0; border:1px solid #d8dedf; border-radius:50%; background:radial-gradient(circle at 30% 25%,#fff 0%,#fbfbfb 50%,#ecf0f0 100%); box-shadow:0 4px 9px #30465118,inset 0 1px #fff; cursor:grab; touch-action:none; user-select:none; transition:box-shadow .18s ease,filter .18s ease; }
+.workflow-graph-node-icon { color:#758489; pointer-events:none; }
+.workflow-graph-node[data-root='true'] .workflow-graph-node-icon { color:#276f85; }
 .workflow-graph-node[data-root='true'] { border-color:#85c3d4; background:radial-gradient(circle at 30% 25%,#effcff 0%,#beeaf5 46%,#79c6dc 100%); box-shadow:0 5px 14px #238fb338,inset 0 1px #fff; }
 .workflow-graph-node:hover { filter:brightness(1.03); box-shadow:0 7px 16px #28748a36,inset 0 1px #fff; }
 .workflow-graph-node[data-link-source='true'] { border-color:#3a99b4; box-shadow:0 0 0 3px #62b9d12d,0 5px 12px #28748a36; }

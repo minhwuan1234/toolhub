@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { Link2, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Link2, Plus, RotateCcw, Trash2, Workflow } from 'lucide-react';
 
 type GraphNode = { id: string; number: number; x: number; y: number };
 type GraphLink = { id: string; source: string; target: string };
@@ -198,7 +198,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
               y: Math.max(8, item.y + delta[1]),
             } : item));
           }}
-        ><span className="workflow-graph-node-label">Node {node.number}</span></button>)}
+        ><Workflow className="workflow-graph-node-icon" size={14} strokeWidth={1.8} aria-hidden="true"/><span className="workflow-graph-node-label">Node {node.number}</span></button>)}
       </div>
     </div>
     <aside className="workflow-graph-sidebar" aria-label="Graph tools and nodes">
