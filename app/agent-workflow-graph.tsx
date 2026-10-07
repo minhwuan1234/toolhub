@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { Link2, Plus, RotateCcw, Trash2, Workflow } from 'lucide-react';
+import { Link2, RotateCcw, Trash2, Workflow } from 'lucide-react';
 
 type GraphNode = { id: string; number: number; x: number; y: number };
 type GraphLink = { id: string; source: string; target: string };
@@ -54,6 +54,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [selectedLink, setSelectedLink] = useState<string | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
@@ -84,7 +85,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     catch { /* The graph remains usable for this session. */ }
   }, [nodes, links, pan, loaded]);
 
-  function addNode() {
+  function addNode(position?: { x: number; y: number }) {
     setNodes(current => {
       const number = Math.max(0, ...current.map(node => node.number)) + 1;
       const branchIndex = current.length - 1;
@@ -92,8 +93,8 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       const row = branchIndex % 5;
       return [...current, {
         id: crypto.randomUUID(), number,
-        x: Math.max(24, (current.length === 0 ? 105 : 310 + column * 170) - pan.x),
-        y: Math.max(24, (current.length === 0 ? 206 : 72 + row * 84 + (column % 2) * 20) - pan.y),
+        x: Math.max(8, position?.x ?? (current.length === 0 ? 105 : 310 + column * 170) - pan.x),
+        y: Math.max(8, position?.y ?? (current.length === 0 ? 206 : 72 + row * 84 + (column % 2) * 20) - pan.y),
       }];
     });
   }
@@ -115,7 +116,8 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   function startDrag(event: PointerEvent<HTMLButtonElement>, node: GraphNode) {
     event.stopPropagation();
-    if (event.button !== 0) return;
+    if (event.button !== 0 || !event.isPrimary) return;
+    event.currentTarget.focus();
     draggedRef.current = false;
     if (connecting) return;
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -162,7 +164,10 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       <button type="button" className="workflow-graph-agent-card" onClick={onOpenAgentCard}>Agent card</button>
     </div>
     <div className="workflow-graph-body">
-    <div ref={canvasRef} className="workflow-graph-canvas" data-panning={panning} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan}>
+    <div ref={canvasRef} className="workflow-graph-canvas" data-panning={panning} data-drag-over={dragOver} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan}
+      onDragOver={event => { if (event.dataTransfer.types.includes('application/x-toolhub-graph-node')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragOver(true); } }}
+      onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOver(false); }}
+      onDrop={event => { setDragOver(false); if (event.dataTransfer.getData('application/x-toolhub-graph-node') !== 'workflow') return; event.preventDefault(); const box = event.currentTarget.getBoundingClientRect(); addNode({ x: event.clientX - box.left - pan.x - nodeRadius, y: event.clientY - box.top - pan.y - nodeRadius }); }}>
       <div ref={stageRef} className="workflow-graph-stage" style={{ minHeight: stageHeight, minWidth: stageWidth, transform: `translate3d(${pan.x}px, ${pan.y}px, 0)` }}>
         {loaded && nodes.length === 0 && <div className="workflow-graph-empty"><span className="workflow-graph-empty-orb"/><strong>Start with a node</strong><span>Use Add node to sketch the UI/UX workflow.</span></div>}
         <svg className="workflow-graph-links" aria-label="Workflow links">
@@ -185,7 +190,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           onClick={() => chooseNode(node.id)}
           onPointerDown={event => startDrag(event, node)}
           onPointerMove={event => moveDrag(event, node.id)}
-          onPointerUp={() => { dragRef.current = null; }}
+          onPointerUp={event => { dragRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
           onPointerCancel={() => { dragRef.current = null; }}
           onKeyDown={event => {
             if (event.key === 'Escape' && connecting) { event.preventDefault(); setSourceId(null); setConnecting(false); return; }
@@ -203,8 +208,8 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     </div>
     <aside className="workflow-graph-sidebar" aria-label="Graph tools and nodes">
       <strong>Graph tools</strong>
+      <div className="node-picker-options workflow-graph-picker"><button type="button" draggable={loaded && nodes.length < 100} disabled={!loaded || nodes.length >= 100} onDragStart={event => { event.dataTransfer.setData('application/x-toolhub-graph-node', 'workflow'); event.dataTransfer.effectAllowed = 'copy'; }} onDragEnd={() => setDragOver(false)} onClick={() => addNode()}><span><Workflow size={20}/></span>Workflow node</button></div>
       <div className="workflow-graph-actions">
-        <button type="button" onClick={addNode} disabled={!loaded || nodes.length >= 100}><Plus size={16}/>Add node</button>
         <button type="button" className="workflow-connect-button" aria-pressed={connecting} disabled={!loaded || nodes.length < 2} onClick={() => { draggedRef.current = false; setConnecting(current => !current); setSourceId(null); setSelectedLink(null); }}><Link2 size={16}/>Connect nodes</button>
         <button type="button" onClick={() => setPan({ x: 0, y: 0 })}><RotateCcw size={14}/>Reset view</button>
         {selectedLink && <button type="button" onClick={() => { setLinks(current => current.filter(link => link.id !== selectedLink)); setSelectedLink(null); }}><Trash2 size={15}/>Remove link</button>}
