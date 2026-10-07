@@ -37,14 +37,16 @@ export function AgentWorkflowGraph() {
 
   function addNode() {
     const width = stageRef.current?.clientWidth || 640;
-    const columns = Math.max(1, Math.floor((width - 40) / 180));
+    const columns = Math.max(1, Math.floor((width - 48) / 216));
     setNodes(current => {
       const number = Math.max(0, ...current.map(node => node.number)) + 1;
       const index = current.length;
+      const column = index % columns;
+      const row = Math.floor(index / columns);
       return [...current, {
         id: crypto.randomUUID(), number,
-        x: Math.min(28 + (index % columns) * 180, Math.max(12, width - nodeWidth - 12)),
-        y: 76 + Math.floor(index / columns) * 112,
+        x: Math.min(24 + column * 216 + (row % 2) * 36, Math.max(12, width - nodeWidth - 12)),
+        y: 78 + row * 132 + (column % 2) * 22,
       }];
     });
   }
@@ -75,7 +77,7 @@ export function AgentWorkflowGraph() {
       <div ref={stageRef} className="workflow-graph-stage" style={{ minHeight: stageHeight }}>
         {loaded && nodes.length === 0 && <div className="workflow-graph-empty"><CircleDot size={28}/><strong>Start with a node</strong><span>Use Add node to sketch the UI/UX workflow.</span></div>}
         {nodes.map(node => <button
-          key={node.id} type="button" className="workflow-graph-node" style={{ left: node.x, top: node.y }}
+          key={node.id} type="button" className="workflow-graph-node" data-depth={node.number % 3} style={{ left: node.x, top: node.y, zIndex: 4 + node.number % 3 }}
           aria-label={`Node ${node.number}. Drag or use arrow keys to move.`}
           onPointerDown={event => startDrag(event, node)}
           onPointerMove={event => moveDrag(event, node.id)}
