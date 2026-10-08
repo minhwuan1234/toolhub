@@ -1,6 +1,6 @@
 # Toolhub — Agent workspace design
 
-Version 3.22 · 2026-10-08 · English interface
+Version 3.23 · 2026-10-08 · English interface
 
 ## Current product direction
 
@@ -27,7 +27,7 @@ Toolhub is a canvas workspace for three AI agents: Business Analyst, UI/UX Desig
 
 ## Shared agent API spend
 
-- Show a compact `API $used / $5` meter in the shared top bar beside the usage bell and account role. The neutral track and small label match the existing top bar; use amber near 80% and red at the limit. On narrow screens, keep it compact without hiding the amount.
+- Show only a compact 7px-high API spend progress bar in the shared top bar beside the usage bell and account role. Do not show visible text beside or above the bar. Keep the detailed spend and limit in its hover title and accessible meter description. Use amber near 80% and red at the limit. Keep the bar compact on narrow screens.
 - The $5 is a lifetime application budget shared by every agent using the one `OPENAI_API_KEY`, including chat and MCP calls. Read token usage from each GPT-5.6 Luna response, price input, cached input, cache writes, and output, and persist the estimate in PostgreSQL. Reserve a conservative maximum before each call so concurrent agents cannot bypass the cap. Stop agent calls when the cap cannot accommodate the reservation. Show unavailable when tracking cannot be loaded; never show an invented zero.
 - Label this as Toolhub agent API spend, distinct from the Railway usage bell. It covers calls made by this application since tracking was installed, not earlier API calls or other consumers of the same key. The dollar budget is a spend limit, not the model provider's requests-per-minute rate limit.
 
