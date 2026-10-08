@@ -3,7 +3,7 @@
 /* oxlint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex, jsx-a11y/prefer-tag-over-role */
 
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { FileText, Pencil, Power, Shapes, Ticket, Trash2, Workflow } from 'lucide-react';
+import { Check, FileText, Pencil, Power, Shapes, Ticket, Trash2, Workflow } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { iconOptions, type NodeIcon } from './node-picker';
@@ -11,7 +11,7 @@ import { contextFileAccept, maxContextCharacters, maxContextFileBytes, readConte
 
 type ContextFile = { id: string; name: string; content: string };
 type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[] };
-type GraphLink = { id: string; source: string; target: string };
+type GraphLink = { id: string; source: string; target: string; command: 'input' };
 
 const storageKey = 'toolhub:designer-graph:v3';
 const previousStorageKey = 'toolhub:designer-graph:v2';
@@ -75,7 +75,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
         const savedNodes = Array.isArray(graph.nodes) ? graph.nodes.filter(isGraphNode).slice(0, 100).map(normalizeNode) : [];
         const nodeIds = new Set(savedNodes.map(node => node.id));
         setNodes(savedNodes);
-        setLinks(Array.isArray(graph.links) ? graph.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300) : []);
+        setLinks(Array.isArray(graph.links) ? graph.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300).map(link => ({ ...link, command: 'input' as const })) : []);
         if (Number.isFinite(graph.pan?.x) && Number.isFinite(graph.pan?.y)) setPan({ x: graph.pan!.x as number, y: graph.pan!.y as number });
       } else {
         const previous = JSON.parse(localStorage.getItem(legacyStorageKey) || '[]') as unknown;
@@ -121,7 +121,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   function connect(source: string, target: string) {
     if (source !== target && nodes.some(node => node.id === source) && nodes.some(node => node.id === target)) {
-      setLinks(current => current.some(link => link.source === source && link.target === target) ? current : [...current, { id: crypto.randomUUID(), source, target }]);
+      setLinks(current => current.some(link => link.source === source && link.target === target) ? current : [...current, { id: crypto.randomUUID(), source, target, command: 'input' }]);
     }
     portDragRef.current = null;
     setDraft(null);
@@ -253,11 +253,14 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
             const target = nodes.find(node => node.id === link.target);
             if (!source || !target) return null;
             const d = linkPath(source, target);
-            return <g key={link.id} className={selectedLink === link.id ? 'workflow-graph-link is-selected' : 'workflow-graph-link'}>
+            const labelX = (source.x + nodeWidth + target.x) / 2;
+            const labelY = (source.y + target.y + nodeWidth) / 2;
+            return <ContextMenu key={link.id}><ContextMenuTrigger render={<g/>} className={selectedLink === link.id ? 'workflow-graph-link is-selected' : 'workflow-graph-link'} onContextMenu={() => setSelectedLink(link.id)}>
               <path d={d} className="connection-hit" role="button" tabIndex={0} aria-label={`Connection from ${source.name} to ${target.name}. Press Delete to remove.`} onPointerDown={event => event.stopPropagation()} onClick={event => { event.currentTarget.focus(); setSelectedLink(link.id); }} onKeyDown={event => { if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); event.stopPropagation(); if (!event.repeat) { setLinks(current => current.filter(item => item.id !== link.id)); setSelectedLink(null); } } else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedLink(link.id); } }}/>
               <path d={d} className="connection-line" markerEnd="url(#workflow-link-arrow)"/>
               <path d={d} className="connection-motion"/>
-            </g>;
+              <g className="workflow-edge-label" aria-hidden="true" transform={`translate(${labelX} ${labelY})`}><rect x="-23" y="-10" width="46" height="20" rx="5"/><text textAnchor="middle" dominantBaseline="central">{link.command}</text></g>
+            </ContextMenuTrigger><ContextMenuContent className="node-context-menu workflow-edge-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}><ContextMenuItem onClick={() => setLinks(current => current.map(item => item.id === link.id ? { ...item, command: 'input' } : item))}><Check/>Input{link.command === 'input' && <span className="node-delete-shortcut">Selected</span>}</ContextMenuItem></ContextMenuContent></ContextMenu>;
           })}
           {draft && (() => { const source = nodes.find(node => node.id === draft.source); const target = draft.target ? nodes.find(node => node.id === draft.target) : null; return source ? <path className={`connection-preview${target ? ' is-ready' : ''}`} d={curve({ x: source.x + nodeWidth, y: source.y + nodeWidth / 2 }, target ? { x: target.x, y: target.y + nodeWidth / 2 } : draft.point)}/> : null; })()}
         </svg>
