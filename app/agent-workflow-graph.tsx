@@ -235,7 +235,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   return <section className="workflow-graph" aria-label="UI/UX workflow graph">
     <div className="workflow-graph-toolbar">
-      <div><strong>UI/UX workflow</strong><output>{draft ? 'Drop on a node input' : `${nodes.length} ${nodes.length === 1 ? 'node' : 'nodes'} · ${links.length} ${links.length === 1 ? 'link' : 'links'}`}</output></div>
+      <div><strong>UI/UX workflow</strong></div>
       <button type="button" className="workflow-graph-agent-card" onClick={onOpenAgentCard}>Agent card</button>
     </div>
     <div className="workflow-graph-body">
