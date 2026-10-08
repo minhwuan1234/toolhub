@@ -86,6 +86,20 @@ test('AI Agent input follows a linked task with selected tags and an incoming ha
     { source: 'handoff', target: 'workflow', command: 'input' },
     { source: 'workflow', target: 'agent', command: 'input' },
   ];
-  assert.deepEqual(resolveGraphAgentInput('agent', nodes, links, { handoff: 'BA brief' }), { ok: true, content: 'Design a screen with Use blue..\n\nBA brief' });
-  assert.equal(resolveGraphAgentInput('another-agent', nodes, links).ok, false);
+  assert.deepEqual(resolveGraphAgentInput('agent', '', nodes, links, { handoff: 'BA brief' }), { ok: true, content: 'Design a screen with Use blue..\n\nBA brief' });
+  assert.equal(resolveGraphAgentInput('another-agent', '', nodes, links).ok, false);
+});
+
+test('AI Agent Explicit input resolves only directly connected tags and receives a direct handoff', () => {
+  const nodes: ContextTagSource[] = [
+    source('Use blue.', 'Color'),
+    { ...source('Use Inter.', 'Type'), id: 'context-2' },
+    { id: 'handoff', kind: 'agent-handoff', active: true, handoffMode: 'receive', contextFiles: [], contextTags: [] },
+  ];
+  const links = [
+    { source: 'context-1', target: 'agent', command: 'input' },
+    { source: 'handoff', target: 'agent', command: 'input' },
+  ];
+  assert.deepEqual(resolveGraphAgentInput('agent', 'Create a screen with /Color/.', nodes, links, { handoff: 'BA brief' }), { ok: true, content: 'Create a screen with Use blue..\n\nBA brief' });
+  assert.equal(resolveGraphAgentInput('agent', 'Use /Type/.', nodes, links).ok, false);
 });

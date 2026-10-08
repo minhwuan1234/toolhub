@@ -42,11 +42,16 @@ export function resolveConnectedInput(targetNodeId: string, task: string, nodes:
   return resolveContextText(task, buildConnectedTagRegistry(targetNodeId, nodes, links));
 }
 
-export function resolveGraphAgentInput(agentNodeId: string, nodes: ContextTagSource[], links: ContextInputLink[], handoffData: Record<string, string> = {}): TagResolution {
+export function resolveGraphAgentInput(agentNodeId: string, explicitInput: string, nodes: ContextTagSource[], links: ContextInputLink[], handoffData: Record<string, string> = {}): TagResolution {
   const workflowIds = new Set(links.filter(link => link.target === agentNodeId && link.command === 'input').map(link => link.source));
   const workflows = nodes.filter(node => node.kind === 'workflow' && node.active !== false && workflowIds.has(node.id) && node.taskText?.trim());
-  if (!workflows.length) return { ok: false, error: 'Connect a Workflow node with a task to this AI Agent.' };
+  if (!explicitInput.trim() && !workflows.length) return { ok: false, error: 'Add Explicit input or connect a Workflow node with a task.' };
   const parts: string[] = [];
+  if (explicitInput.trim()) {
+    const resolved = resolveConnectedInput(agentNodeId, explicitInput, nodes, links);
+    if (!resolved.ok) return resolved;
+    parts.push(resolved.content);
+  }
   for (const workflow of workflows) {
     const resolved = resolveConnectedInput(workflow.id, workflow.taskText!, nodes, links);
     if (!resolved.ok) return resolved;
@@ -54,6 +59,8 @@ export function resolveGraphAgentInput(agentNodeId: string, nodes: ContextTagSou
     const handoffs = nodes.filter(node => node.kind === 'agent-handoff' && node.active !== false && node.handoffMode === 'receive' && incoming.has(node.id)).map(node => handoffData[node.id]).filter(Boolean);
     parts.push([resolved.content, ...handoffs].join('\n\n'));
   }
+  const directHandoffs = nodes.filter(node => node.kind === 'agent-handoff' && node.active !== false && node.handoffMode === 'receive' && workflowIds.has(node.id)).map(node => handoffData[node.id]).filter(Boolean);
+  parts.push(...directHandoffs);
   const content = parts.join('\n\n');
   if (content.length > 4000) return { ok: false, error: 'Selected task and context exceed the 4,000 character model input limit.' };
   return { ok: true, content };

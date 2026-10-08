@@ -813,12 +813,14 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .workflow-task-tags button:hover:not(:disabled) { background:#e8e7e3; }
 .workflow-task-tags button:disabled { opacity:.5; cursor:default; }
 .workflow-task-error { color:#b42318; font-size:12px; }
-.workflow-agent-dialog[data-slot='dialog-content'] { display:flex; flex-direction:column; gap:18px; width:min(60vw,1000px); max-width:calc(100vw - 24px); max-height:min(80svh,820px); padding:24px; overflow-y:auto; background:#fff; color:#37352f; }
-.workflow-agent-dialog [data-slot='dialog-title'] { font-size:17px; font-weight:600; }
-.workflow-agent-form { display:flex; flex-direction:column; gap:10px; min-height:0; }
-.workflow-agent-form>label,.workflow-agent-result>strong { font-size:12px; font-weight:600; }
-.workflow-agent-form textarea { width:100%; min-height:260px; padding:14px; border:1px solid #deddd8; border-radius:8px; outline:none; resize:vertical; background:#fff; color:#37352f; font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; }
-.workflow-agent-form textarea:focus { border-color:#89877f; box-shadow:0 0 0 2px #37352f12; }
+.workflow-agent-dialog.node-inspector.node-inspector-agent[data-slot='dialog-content'] { gap:0; padding:0; overflow:hidden; }
+.workflow-agent-form.agent-card-form { gap:14px; }
+.workflow-agent-form .agent-card-field>textarea { min-height:130px; }
+.workflow-agent-form .workflow-task-editor { min-height:150px; }
+.workflow-agent-form .workflow-task-editor textarea,.workflow-agent-form .workflow-task-editor .workflow-context-syntax-mirror { min-height:150px; }
+.workflow-agent-form .workflow-task-editor textarea { border:0; border-radius:8px; color:transparent; caret-color:#37352f; -webkit-text-fill-color:transparent; }
+.workflow-agent-form .workflow-agent-json { min-height:220px; font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.workflow-agent-result>strong { font-size:12px; font-weight:600; }
 .workflow-agent-actions { display:flex; justify-content:flex-end; gap:8px; }
 .workflow-agent-actions button { min-height:38px; padding:0 15px; border:1px solid #deddd8; border-radius:7px; background:#fff; color:#37352f; font:inherit; font-size:12px; font-weight:600; cursor:pointer; }
 .workflow-agent-actions button:last-child { border-color:#37352f; background:#37352f; color:#fff; }
