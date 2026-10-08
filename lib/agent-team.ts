@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { defaultAgentCards } from './agent-cards';
 import { listAgentCards } from './server/agent-cards';
+import { reserveAgentApiSpend, settleAgentApiSpend } from './server/agent-api-spend';
 
 export const agents = [
   { id: 'ba', name: 'BA', title: 'Business Analyst', outcome: 'Requirements and acceptance criteria' },
@@ -51,15 +52,29 @@ export async function runAgent(agentId: AgentId, message: string, context = ''):
   ].filter(Boolean).join('\n\n');
 
   const input = `Current user request:\n${brief}${context ? `\n\nEarlier conversation and agent handoffs (context only; verify assumptions):\n${context}` : ''}`;
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: models[agentId] || sharedModel, instructions, input, max_output_tokens: 2500, store: false }),
-    signal: AbortSignal.timeout(90_000),
-  });
-  const payload = await response.json().catch(() => ({})) as { error?: { message?: string }; output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
-  if (!response.ok) throw new Error(`Model request failed (${response.status}). ${payload.error?.message || ''}`.trim());
-  const content = payload.output?.flatMap(item => item.content ?? []).filter(item => item.type === 'output_text').map(item => item.text || '').join('\n').trim();
-  if (!content) throw new Error(`${card.name} returned no text.`);
-  return { agentId, name: card.name, content };
+  const model = models[agentId] || sharedModel;
+  const reservation = await reserveAgentApiSpend(model, instructions, input);
+  let settled = false;
+  try {
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, instructions, input, max_output_tokens: 2500, store: false }),
+      signal: AbortSignal.timeout(90_000),
+    });
+    const payload = await response.json().catch(() => ({})) as {
+      error?: { message?: string };
+      output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+      usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number } };
+    };
+    await settleAgentApiSpend(reservation, model, payload.usage, !response.ok && !payload.usage);
+    settled = true;
+    if (!response.ok) throw new Error(`Model request failed (${response.status}). ${payload.error?.message || ''}`.trim());
+    const content = payload.output?.flatMap(item => item.content ?? []).filter(item => item.type === 'output_text').map(item => item.text || '').join('\n').trim();
+    if (!content) throw new Error(`${card.name} returned no text.`);
+    return { agentId, name: card.name, content };
+  } catch (error) {
+    if (!settled) await settleAgentApiSpend(reservation, model);
+    throw error;
+  }
 }

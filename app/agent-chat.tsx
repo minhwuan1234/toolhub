@@ -74,6 +74,7 @@ export function AgentChat({ onAgentState, onConfigured, refreshKey }: { onAgentS
           const item = JSON.parse(line) as StreamEvent;
           if (item.type === 'start') { workingAgent = item.agentId; setActiveAgent(item.agentId); onAgentState(item.agentId, 'working'); }
           if (item.type === 'result') {
+            window.dispatchEvent(new Event('toolhub:agent-api-spend'));
             setMessages(current => [...current, { id: crypto.randomUUID(), kind: 'agent', agentId: item.result.agentId, name: item.result.name, text: item.result.content }]);
             setActiveAgent(null);
             onAgentState(item.result.agentId, 'complete');
@@ -93,6 +94,7 @@ export function AgentChat({ onAgentState, onConfigured, refreshKey }: { onAgentS
       if (workingAgent) onAgentState(workingAgent, 'error');
       setMessages(current => [...current, { id: crypto.randomUUID(), kind: 'error', text: error instanceof Error ? error.message : 'Request failed.' }]);
     } finally {
+      window.dispatchEvent(new Event('toolhub:agent-api-spend'));
       setRunning(false);
       setActiveAgent(null);
     }
