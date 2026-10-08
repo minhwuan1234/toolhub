@@ -1,37 +1,37 @@
 # Toolhub UI design system
 
-Version 4.0 · 2026-10-08 · English interface
+Version 4.1 · 2026-10-08 · English interface
 
-/Design.Index/ *This file indexes the Toolhub UI/UX context collection. Each component specification is an independent Markdown context file under contexts/ui-design/.*
+/Design.Index/ *This file indexes the Toolhub UI screen context collection. Each file under contexts/ui-screen/ describes one basic part of a screen.*
 /Design.RuleSyntax/ *Write each normative design decision as a named slash block containing one concise requirement.*
 /Design.SourceOfTruth/ *Treat named slash blocks in the component context files as the source of truth when designing or reviewing a screen.*
 /Design.Unknowns/ *Do not invent behavior, content, or visual rules where the specification is silent. Surface the open question instead.*
 
-## Component specifications
+## Basic screen contexts
 
-- [Product direction](contexts/ui-design/product-direction.md)
-- [Color](contexts/ui-design/color.md)
-- [Layout and spacing](contexts/ui-design/layout.md)
-- [Buttons and controls](contexts/ui-design/buttons-controls.md)
-- [Main canvas and graph](contexts/ui-design/canvas-graph.md)
-- [Agent cards](contexts/ui-design/agent-card.md)
-- [AI Agent node](contexts/ui-design/ai-agent-node.md)
-- [Context Builder](contexts/ui-design/context-builder.md)
-- [Agent Handoff](contexts/ui-design/agent-handoff.md)
-- [Chat composer and agent menu](contexts/ui-design/chat-composer.md)
-- [API spend indicator](contexts/ui-design/api-spend-indicator.md)
-- [Admin account selectors](contexts/ui-design/admin-account-selectors.md)
-- [Accessibility and responsive behavior](contexts/ui-design/accessibility-responsive.md)
+- [Screen structure and content hierarchy](contexts/ui-screen/screen-structure.md)
+- [Layout and spacing](contexts/ui-screen/layout-spacing.md)
+- [Color](contexts/ui-screen/color.md)
+- [Typography](contexts/ui-screen/typography.md)
+- [Surfaces](contexts/ui-screen/surface.md)
+- [Navigation](contexts/ui-screen/navigation.md)
+- [Buttons](contexts/ui-screen/button.md)
+- [Inputs and forms](contexts/ui-screen/input-form.md)
+- [Content display](contexts/ui-screen/content-display.md)
+- [Icons and media](contexts/ui-screen/icon-media.md)
+- [States and feedback](contexts/ui-screen/state-feedback.md)
+- [Responsive behavior and accessibility](contexts/ui-screen/responsive-accessibility.md)
 
 ## Usage
 
 /Design.RuleFormat/ *Give every rule a clear name and one concise requirement.*
-/Design.ReadScope/ *In Context Builder, attach only the context files relevant to the screen, plus Product direction, Color, Layout, Buttons and controls, and Accessibility and responsive behavior when needed.*
+/Design.ReadScope/ *In Context Builder, attach the basic screen contexts relevant to the design assignment. Reference the needed slash tags explicitly from the AI Agent input.*
 /Design.UIUXScope/ *UI/UX deliverables are designs or prototypes only unless a request explicitly asks for working behavior. A visible control does not imply a real API, persistence, or action.*
-/Design.ContextSelection/ *Keep component contexts independent. Attach and connect only the contexts required for a task; do not load or merge every component file by default.*
+/Design.ContextSelection/ *Keep screen contexts independent. Connect only the contexts required for a task; do not load or merge every file by default.*
+/Design.ProductReference/ *Existing Toolhub feature specifications are preserved under docs/reference/toolhub-components/ for reference and are not part of the basic screen context collection.*
 /Design.Archive/ *Historical LinkedIn scanner guidance is archived at design/archive/linkedin-scanner-v2.md and does not apply to Toolhub.*
 
 ## Maintenance
 
-/Design.Maintenance/ *When a UI decision changes, update its component context file and this index if the file map or usage rules change. Keep each context focused on its component.*
+/Design.Maintenance/ *When a basic UI rule changes, update its screen context file and this index if the file map or usage rules change. Keep each context focused on one screen element.*
 /Design.Loading/ *Component contexts are attached to Context Builder by the user and selected through graph connections. The application does not automatically load every context file.*
