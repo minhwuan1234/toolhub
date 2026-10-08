@@ -3,15 +3,16 @@
 /* oxlint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex, jsx-a11y/prefer-tag-over-role */
 
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { Check, FileText, Pencil, Power, Shapes, Ticket, Trash2, Workflow } from 'lucide-react';
+import { Bot, Check, FileText, Pencil, Power, Shapes, Ticket, Trash2, Workflow } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { iconOptions, type NodeIcon } from './node-picker';
 import { contextFileAccept, maxContextCharacters, maxContextFileBytes, readContextFile } from '@/lib/context-file-reader';
+import { buildTagRegistry, resolveTag } from '@/lib/context-tags';
 
 type ContextFile = { id: string; name: string; content: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
-type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[]; contextTags: ContextTag[] };
+type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context' | 'agent'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[]; contextTags: ContextTag[] };
 type GraphLink = { id: string; source: string; target: string; command: 'input' };
 
 const storageKey = 'toolhub:designer-graph:v3';
@@ -77,7 +78,7 @@ function isGraphNode(value: unknown): value is GraphNode {
 }
 
 function normalizeNode(node: GraphNode): GraphNode {
-  const kind = node.kind === 'context' ? 'context' : 'workflow';
+  const kind = node.kind === 'context' || node.kind === 'agent' ? node.kind : 'workflow';
   const contextFiles = Array.isArray(node.contextFiles) ? node.contextFiles.filter((file): file is ContextFile => Boolean(file && typeof file === 'object' && typeof file.id === 'string' && typeof file.name === 'string' && typeof file.content === 'string')).slice(0, 20) : [];
   const fileIds = new Set(contextFiles.map(file => file.id));
   const previousTags = Array.isArray(node.contextTags) ? node.contextTags.filter((tag): tag is ContextTag => Boolean(tag && typeof tag === 'object' && typeof tag.id === 'string' && typeof tag.name === 'string' && (tag.kind === 'text' && typeof tag.text === 'string' || tag.kind === 'file' && typeof tag.fileId === 'string' && fileIds.has(tag.fileId)))).slice(0, 30) : [];
@@ -87,7 +88,7 @@ function normalizeNode(node: GraphNode): GraphNode {
   }
   contextText = contextText.slice(0, maxContextCharacters);
   const contextTags = parseContextTags(contextText, contextFiles, previousTags);
-  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : 'workflow', active: node.active !== false, contextText, contextFiles, contextTags };
+  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : kind === 'agent' ? `AI Agent ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : 'workflow', active: node.active !== false, contextText, contextFiles, contextTags };
 }
 
 function isGraphLink(value: unknown): value is GraphLink {
@@ -166,7 +167,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       const row = branchIndex % 4;
       if (current.length >= 100) return current;
       return [...current, {
-        id, number, kind, name: kind === 'context' ? `Context ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : 'workflow', active: true, contextText: '', contextFiles: [], contextTags: [],
+        id, number, kind, name: kind === 'context' ? `Context ${number}` : kind === 'agent' ? `AI Agent ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : 'workflow', active: kind !== 'agent', contextText: '', contextFiles: [], contextTags: [],
         x: Math.max(8, position?.x ?? (current.length === 0 ? 105 : 310 + column * 190) - pan.x),
         y: Math.max(8, position?.y ?? (current.length === 0 ? 206 : 55 + row * 112 + (column % 2) * 20) - pan.y),
       }];
@@ -201,14 +202,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   }
 
   const tagNames = nodes.flatMap(node => node.kind === 'context' ? tagNamesIn(node.contextText) : []).filter((name, index, all) => all.findIndex(item => item.toLowerCase() === name.toLowerCase()) === index);
-  const tagDefinitions = new Map<string, string>();
-  for (const node of nodes) {
-    if (node.kind !== 'context') continue;
-    for (const tag of node.contextTags) {
-      const key = tag.name.toLowerCase();
-      if (!tagDefinitions.has(key)) tagDefinitions.set(key, tag.kind === 'file' ? node.contextFiles.find(file => file.id === tag.fileId)?.content || '' : tag.text);
-    }
-  }
+  const tagRegistry = buildTagRegistry(nodes);
   const suggestedTags = tagPicker ? tagNames.filter(name => name.toLowerCase().includes(tagPicker.query.trim().toLowerCase())).slice(0, 8) : [];
 
   function menuPosition(text: string, caret: number) {
@@ -243,10 +237,9 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   function syncTagPreview(text: string, caret: number) {
     const name = tagAt(text, caret);
-    const content = name ? tagDefinitions.get(name.toLowerCase()) : undefined;
-    const position = content !== undefined ? menuPosition(text, caret) : null;
+    const position = name ? menuPosition(text, caret) : null;
     const editor = contextEditorRef.current;
-    setTagPreview(name && content !== undefined && position && editor ? { name, x: Math.min(position.x, Math.max(8, editor.clientWidth - 368)), y: position.y } : null);
+    setTagPreview(name && position && editor ? { name, x: Math.min(position.x, Math.max(8, editor.clientWidth - 368)), y: position.y } : null);
   }
 
   function selectTagSuggestion(name: string, node: GraphNode) {
@@ -374,7 +367,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       onKeyDown={event => { if (event.target !== event.currentTarget) return; if (event.key === '+' || event.key === '=' || event.key.toLowerCase() === 'n') { event.preventDefault(); if (nodes.length < 100) addNode('workflow', { x: Math.max(8, event.currentTarget.clientWidth / 2 - pan.x - nodeWidth / 2), y: Math.max(8, event.currentTarget.clientHeight / 2 - pan.y - nodeWidth / 2) }); } else if (event.key === '0') { event.preventDefault(); setPan({ x: 0, y: 0 }); } }}
       onDragOver={event => { if (event.dataTransfer.types.includes('application/x-toolhub-graph-node')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragOver(true); } }}
       onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOver(false); }}
-      onDrop={event => { setDragOver(false); const kind = event.dataTransfer.getData('application/x-toolhub-graph-node'); if (kind !== 'workflow' && kind !== 'context') return; event.preventDefault(); const box = event.currentTarget.getBoundingClientRect(); addNode(kind, { x: event.clientX - box.left - pan.x - nodeWidth / 2, y: event.clientY - box.top - pan.y - nodeWidth / 2 }); }}>
+      onDrop={event => { setDragOver(false); const kind = event.dataTransfer.getData('application/x-toolhub-graph-node'); if (kind !== 'workflow' && kind !== 'context' && kind !== 'agent') return; event.preventDefault(); const box = event.currentTarget.getBoundingClientRect(); addNode(kind, { x: event.clientX - box.left - pan.x - nodeWidth / 2, y: event.clientY - box.top - pan.y - nodeWidth / 2 }); }}>
       <div ref={stageRef} className="workflow-graph-stage" style={{ minHeight: stageHeight, minWidth: stageWidth, transform: `translate3d(${pan.x}px, ${pan.y}px, 0)` }}>
         {loaded && nodes.length === 0 && <div className="workflow-graph-empty"><Workflow size={26}/><strong>Start with a node</strong><span>Click or drag a node from the sidebar, or press +.</span></div>}
         <svg className="workflow-graph-links" aria-label="Workflow links">
@@ -430,7 +423,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     </div>
     <aside className="workflow-graph-sidebar node-picker" aria-label="Add graph node">
       <header><h2>Add node</h2></header>
-      <div className="node-picker-options workflow-graph-picker">{([{ kind: 'workflow', label: 'Workflow node', icon: Workflow }, { kind: 'context', label: 'Context Builder', icon: FileText }] as const).map(({ kind, label, icon: Icon }) => <button type="button" key={kind} draggable={loaded && nodes.length < 100} disabled={!loaded || nodes.length >= 100} onDragStart={event => { event.dataTransfer.setData('application/x-toolhub-graph-node', kind); event.dataTransfer.effectAllowed = 'copy'; }} onDragEnd={() => setDragOver(false)} onClick={() => addNode(kind)}><span><Icon size={20}/></span>{label}</button>)}</div>
+      <div className="node-picker-options workflow-graph-picker">{([{ kind: 'workflow', label: 'Workflow node', icon: Workflow }, { kind: 'context', label: 'Context Builder', icon: FileText }, { kind: 'agent', label: 'AI Agent', icon: Bot }] as const).map(({ kind, label, icon: Icon }) => <button type="button" key={kind} draggable={loaded && nodes.length < 100} disabled={!loaded || nodes.length >= 100} onDragStart={event => { event.dataTransfer.setData('application/x-toolhub-graph-node', kind); event.dataTransfer.effectAllowed = 'copy'; }} onDragEnd={() => setDragOver(false)} onClick={() => addNode(kind)}><span><Icon size={20}/></span>{label}</button>)}</div>
     </aside>
     </div>
     <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-rename-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" autoFocus maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
@@ -456,7 +449,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
                     if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); selectTagSuggestion(suggestedTags[tagPickerIndex] || suggestedTags[0], node); }
                   }} onScroll={event => { if (contextMirrorRef.current) contextMirrorRef.current.scrollTop = event.currentTarget.scrollTop; setTagPicker(null); setTagPreview(null); }} placeholder="Enter context or attach files..."/>
                   {tagPicker && suggestedTags.length > 0 && <div className="workflow-context-suggestions" role="listbox" aria-label="Existing tags" style={{ left: tagPicker.x, top: tagPicker.y }}>{suggestedTags.map((name, index) => <button type="button" role="option" aria-selected={index === tagPickerIndex} key={name} onMouseDown={event => event.preventDefault()} onClick={() => selectTagSuggestion(name, node)}>{name}</button>)}</div>}
-                  {tagPreview && tagDefinitions.has(tagPreview.name.toLowerCase()) && <div className="workflow-context-tag-preview" role="dialog" aria-label={`Content for ${tagPreview.name}`} style={{ left: tagPreview.x, top: tagPreview.y }}><div className="workflow-context-tag-preview-heading"><strong>{tagPreview.name}</strong><button type="button" aria-label="Close tag content" onClick={() => setTagPreview(null)}>×</button></div><div className="workflow-context-tag-preview-body">{tagDefinitions.get(tagPreview.name.toLowerCase())}</div></div>}
+                  {tagPreview && <div className="workflow-context-tag-preview" role="dialog" aria-label={`Content for ${tagPreview.name}`} style={{ left: tagPreview.x, top: tagPreview.y }}><div className="workflow-context-tag-preview-heading"><strong>{tagPreview.name}</strong><button type="button" aria-label="Close tag content" onClick={() => setTagPreview(null)}>×</button></div><div className="workflow-context-tag-preview-body">{(() => { const result = resolveTag(tagPreview.name, tagRegistry); return result.ok ? result.content : result.error; })()}</div></div>}
                 </div>
                 <div className="workflow-context-composer-footer"><div className="workflow-context-file-list">{node.contextFiles.map(file => <span key={file.id} className="workflow-context-file-chip" title={file.name}><FileText size={14}/>{file.name}<button type="button" aria-label={`Remove ${file.name}`} disabled={readingFiles} onClick={() => updateNode(node.id, { contextFiles: node.contextFiles.filter(item => item.id !== file.id), contextTags: node.contextTags.filter(tag => tag.fileId !== file.id) })}>×</button></span>)}</div><input ref={contextFileRef} id="workflow-context-file" type="file" accept={contextFileAccept} multiple hidden onChange={event => { void attachContextFiles(node.id, event.target.files); }}/><button type="button" className="workflow-context-attach" disabled={readingFiles} onClick={() => contextFileRef.current?.click()}><FileText size={16}/>{readingFiles ? 'Reading files…' : 'Attach files'}</button></div>
               </div>
