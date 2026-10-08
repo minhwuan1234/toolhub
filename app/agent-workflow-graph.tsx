@@ -7,8 +7,10 @@ import { FileText, Pencil, Power, Shapes, Ticket, Trash2, Workflow } from 'lucid
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { iconOptions, type NodeIcon } from './node-picker';
+import { contextFileAccept, maxContextCharacters, maxContextFileBytes, readContextFile } from '@/lib/context-file-reader';
 
-type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context'; name: string; icon: NodeIcon; active: boolean; contextText: string; fileName: string };
+type ContextFile = { id: string; name: string; content: string };
+type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[] };
 type GraphLink = { id: string; source: string; target: string };
 
 const storageKey = 'toolhub:designer-graph:v3';
@@ -25,7 +27,8 @@ function isGraphNode(value: unknown): value is GraphNode {
 
 function normalizeNode(node: GraphNode): GraphNode {
   const kind = node.kind === 'context' ? 'context' : 'workflow';
-  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : 'workflow', active: node.active !== false, contextText: typeof node.contextText === 'string' ? node.contextText.slice(0, 50000) : '', fileName: typeof node.fileName === 'string' ? node.fileName.slice(0, 160) : '' };
+  const contextFiles = Array.isArray(node.contextFiles) ? node.contextFiles.filter((file): file is ContextFile => Boolean(file && typeof file === 'object' && typeof file.id === 'string' && typeof file.name === 'string' && typeof file.content === 'string')).slice(0, 20) : [];
+  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : 'workflow', active: node.active !== false, contextText: typeof node.contextText === 'string' ? node.contextText.slice(0, maxContextCharacters) : '', contextFiles };
 }
 
 function isGraphLink(value: unknown): value is GraphLink {
@@ -56,6 +59,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [fileError, setFileError] = useState('');
   const [renamingNode, setRenamingNode] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
+  const [readingFiles, setReadingFiles] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const contextFileRef = useRef<HTMLInputElement>(null);
@@ -97,7 +101,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       const row = branchIndex % 4;
       if (current.length >= 100) return current;
       return [...current, {
-        id, number, kind, name: kind === 'context' ? `Context ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : 'workflow', active: true, contextText: '', fileName: '',
+        id, number, kind, name: kind === 'context' ? `Context ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : 'workflow', active: true, contextText: '', contextFiles: [],
         x: Math.max(8, position?.x ?? (current.length === 0 ? 105 : 310 + column * 190) - pan.x),
         y: Math.max(8, position?.y ?? (current.length === 0 ? 206 : 55 + row * 112 + (column % 2) * 20) - pan.y),
       }];
@@ -125,6 +129,34 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   function updateNode(id: string, patch: Partial<GraphNode>) {
     setNodes(current => current.map(node => node.id === id ? { ...node, ...patch } : node));
+  }
+
+  async function attachContextFiles(nodeId: string, fileList: FileList | null) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setFileError('');
+    const node = nodes.find(item => item.id === nodeId);
+    if (!node) return;
+    if (node.contextFiles.length + files.length > 20) { setFileError('A context can include up to 20 files.'); return; }
+    setReadingFiles(true);
+    try {
+      const additions: ContextFile[] = [];
+      for (const file of files) {
+        if (file.size > maxContextFileBytes) throw new Error(`${file.name} exceeds the 20 MB file limit.`);
+        const content = await readContextFile(file);
+        if (!content.trim()) throw new Error(`No readable text was found in ${file.name}.`);
+        additions.push({ id: crypto.randomUUID(), name: file.name, content: content.trim() });
+      }
+      const addedCharacters = additions.reduce((total, file) => total + file.content.length, 0);
+      const currentCharacters = node.contextText.length + node.contextFiles.reduce((total, file) => total + file.content.length, 0);
+      if (currentCharacters + addedCharacters > maxContextCharacters) throw new Error('Combined context is over the 200,000 character limit.');
+      updateNode(nodeId, { contextFiles: [...node.contextFiles, ...additions] });
+    } catch (cause) {
+      setFileError(cause instanceof Error ? cause.message : 'Unable to read one of these files.');
+    } finally {
+      setReadingFiles(false);
+      if (contextFileRef.current) contextFileRef.current.value = '';
+    }
   }
 
   function targetAt(clientX: number, clientY: number, source: string) {
@@ -267,7 +299,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       <div className="node-picker-options workflow-graph-picker">{([{ kind: 'workflow', label: 'Workflow node', icon: Workflow }, { kind: 'context', label: 'Context Builder', icon: FileText }] as const).map(({ kind, label, icon: Icon }) => <button type="button" key={kind} draggable={loaded && nodes.length < 100} disabled={!loaded || nodes.length >= 100} onDragStart={event => { event.dataTransfer.setData('application/x-toolhub-graph-node', kind); event.dataTransfer.effectAllowed = 'copy'; }} onDragEnd={() => setDragOver(false)} onClick={() => addNode(kind)}><span><Icon size={20}/></span>{label}</button>)}</div>
     </aside>
     </div>
-    <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-context-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" autoFocus maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
-    <Dialog open={Boolean(editingNode)} onOpenChange={open => { if (!open) setEditingNode(null); }}><DialogContent className="workflow-context-dialog"><DialogTitle>Context Builder</DialogTitle>{(() => { const node = nodes.find(item => item.id === editingNode); return node && <div className="workflow-context-fields"><label htmlFor="workflow-context-text">Context text</label><textarea id="workflow-context-text" value={node.contextText} maxLength={50000} onChange={event => updateNode(node.id, { contextText: event.target.value, fileName: '' })} placeholder="Add context text..."/><label htmlFor="workflow-context-file">Context file</label><div className="workflow-context-upload"><input ref={contextFileRef} id="workflow-context-file" type="file" accept=".txt,.md,text/plain,text/markdown" hidden onChange={async event => { const file = event.target.files?.[0]; if (!file) return; if (file.size > 50000) { setFileError('File must be 50 KB or smaller.'); event.target.value = ''; return; } try { const content = await file.text(); updateNode(node.id, { contextText: content, fileName: file.name }); setFileError(''); } catch { setFileError('Unable to read this file.'); } }}/><span title={node.fileName || 'No file selected'}>{node.fileName || 'No file selected'}</span><button type="button" onClick={() => contextFileRef.current?.click()}>{node.fileName ? 'Replace file' : 'Upload file'}</button></div>{fileError && <small role="alert" className="workflow-context-error">{fileError}</small>}</div>; })()}</DialogContent></Dialog>
+    <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-rename-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" autoFocus maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
+    <Dialog open={Boolean(editingNode)} onOpenChange={open => { if (!open) setEditingNode(null); }}><DialogContent className="node-inspector node-inspector-setup node-inspector-agent workflow-context-dialog"><header className="inspector-heading"><span className="inspector-icon"><FileText size={21}/></span><DialogTitle>Context Builder</DialogTitle></header><DialogDescription className="sr-only">Provide context text and files for connected workflow nodes.</DialogDescription>{(() => { const node = nodes.find(item => item.id === editingNode); return node && <div className="agent-card-form workflow-context-form"><label className="agent-card-field"><span>Context</span><div className="workflow-context-composer"><textarea id="workflow-context-text" disabled={readingFiles} value={node.contextText} maxLength={Math.max(0, maxContextCharacters - node.contextFiles.reduce((total, file) => total + file.content.length, 0))} onChange={event => updateNode(node.id, { contextText: event.target.value })} placeholder="Enter context or attach files..."/><div className="workflow-context-composer-footer"><div className="workflow-context-file-list">{node.contextFiles.map(file => <span key={file.id} className="workflow-context-file-chip" title={file.name}><FileText size={14}/>{file.name}<button type="button" aria-label={`Remove ${file.name}`} disabled={readingFiles} onClick={() => updateNode(node.id, { contextFiles: node.contextFiles.filter(item => item.id !== file.id) })}>×</button></span>)}</div><input ref={contextFileRef} id="workflow-context-file" type="file" accept={contextFileAccept} multiple hidden onChange={event => { void attachContextFiles(node.id, event.target.files); }}/><button type="button" className="workflow-context-attach" disabled={readingFiles} onClick={() => contextFileRef.current?.click()}><FileText size={16}/>{readingFiles ? 'Reading files…' : 'Attach files'}</button></div></div></label>{fileError && <small role="alert" className="workflow-context-error">{fileError}</small>}</div>; })()}</DialogContent></Dialog>
   </section>;
 }
