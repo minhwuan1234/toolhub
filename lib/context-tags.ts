@@ -1,6 +1,7 @@
 export type ContextTagSource = {
   id: string;
   kind: string;
+  active?: boolean;
   contextFiles: Array<{ id: string; name: string; content: string }>;
   contextTags: Array<{ id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null }>;
 };
@@ -8,6 +9,7 @@ export type ContextTagSource = {
 export type TagDefinition = { id: string; name: string; sourceNodeId: string; content: string };
 export type TagRegistry = { definitions: Map<string, TagDefinition>; conflicts: Set<string> };
 export type TagResolution = { ok: true; content: string } | { ok: false; error: string };
+export type ContextInputLink = { source: string; target: string; command: string };
 
 const tagPattern = /(^|\s)\/([^/*\n]{1,40})\/(?:\s*\*([\s\S]*?)\*)?/g;
 const tagKey = (name: string) => name.trim().toLocaleLowerCase('en-US');
@@ -27,6 +29,15 @@ export function buildTagRegistry(nodes: ContextTagSource[]): TagRegistry {
     }
   }
   return { definitions, conflicts };
+}
+
+export function buildConnectedTagRegistry(targetNodeId: string, nodes: ContextTagSource[], links: ContextInputLink[]): TagRegistry {
+  const allowed = new Set(links.filter(link => link.target === targetNodeId && link.command === 'input').map(link => link.source));
+  return buildTagRegistry(nodes.filter(node => node.kind === 'context' && node.active !== false && allowed.has(node.id)));
+}
+
+export function resolveConnectedInput(targetNodeId: string, task: string, nodes: ContextTagSource[], links: ContextInputLink[]): TagResolution {
+  return resolveContextText(task, buildConnectedTagRegistry(targetNodeId, nodes, links));
 }
 
 export function resolveTag(name: string, registry: TagRegistry): TagResolution {

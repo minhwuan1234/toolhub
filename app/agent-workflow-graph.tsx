@@ -8,12 +8,12 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, Conte
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { iconOptions, type NodeIcon } from './node-picker';
 import { contextFileAccept, maxContextCharacters, maxContextFileBytes, readContextFile } from '@/lib/context-file-reader';
-import { buildTagRegistry, resolveTag } from '@/lib/context-tags';
+import { buildConnectedTagRegistry, buildTagRegistry, resolveConnectedInput, resolveTag } from '@/lib/context-tags';
 import { agentLinksChangedEvent, agentOutputsChangedEvent, readAgentLinks, readAgentOutputs, routesForAgent, syncDesignerHandoffDeliveries, type AgentLink, type AgentOutputSnapshot } from '@/lib/agent-handoff';
 
 type ContextFile = { id: string; name: string; content: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
-type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context' | 'agent' | 'tool-calling' | 'human-approval' | 'skill' | 'agent-handoff'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[]; contextTags: ContextTag[]; handoffMode: 'receive' | 'send' };
+type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context' | 'agent' | 'tool-calling' | 'human-approval' | 'skill' | 'agent-handoff'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[]; contextTags: ContextTag[]; handoffMode: 'receive' | 'send'; taskText: string };
 type GraphLink = { id: string; source: string; target: string; command: 'input' };
 
 const storageKey = 'toolhub:designer-graph:v3';
@@ -89,7 +89,7 @@ function normalizeNode(node: GraphNode): GraphNode {
   }
   contextText = contextText.slice(0, maxContextCharacters);
   const contextTags = parseContextTags(contextText, contextFiles, previousTags);
-  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : kind === 'agent' ? `AI Agent ${node.number}` : kind === 'tool-calling' ? `Tool Calling ${node.number}` : kind === 'human-approval' ? `Human Approval ${node.number}` : kind === 'skill' ? `Skill ${node.number}` : kind === 'agent-handoff' ? `Agent Handoff ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'agent-handoff' && !node.handoffMode ? true : node.active !== false, contextText, contextFiles, contextTags, handoffMode: node.handoffMode === 'send' ? 'send' : 'receive' };
+  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : kind === 'agent' ? `AI Agent ${node.number}` : kind === 'tool-calling' ? `Tool Calling ${node.number}` : kind === 'human-approval' ? `Human Approval ${node.number}` : kind === 'skill' ? `Skill ${node.number}` : kind === 'agent-handoff' ? `Agent Handoff ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'agent-handoff' && !node.handoffMode ? true : node.active !== false, contextText, contextFiles, contextTags, handoffMode: node.handoffMode === 'send' ? 'send' : 'receive', taskText: typeof node.taskText === 'string' ? node.taskText.slice(0, 4000) : '' };
 }
 
 function isGraphLink(value: unknown): value is GraphLink {
@@ -117,6 +117,9 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [panning, setPanning] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [editingNode, setEditingNode] = useState<string | null>(null);
+  const [editingWorkflow, setEditingWorkflow] = useState<string | null>(null);
+  const [taskTagPicker, setTaskTagPicker] = useState<{ start: number; query: string } | null>(null);
+  const [taskTagIndex, setTaskTagIndex] = useState(0);
   const [editingHandoff, setEditingHandoff] = useState<string | null>(null);
   const [agentLinks, setAgentLinks] = useState<AgentLink[]>([]);
   const [agentOutputs, setAgentOutputs] = useState<AgentOutputSnapshot[]>([]);
@@ -133,6 +136,8 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const contextTextRef = useRef<HTMLTextAreaElement>(null);
   const contextEditorRef = useRef<HTMLDivElement>(null);
   const contextMirrorRef = useRef<HTMLDivElement>(null);
+  const taskTextRef = useRef<HTMLTextAreaElement>(null);
+  const taskMirrorRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const dragRef = useRef<{ id: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const portDragRef = useRef<{ source: string; pointerId: number } | null>(null);
@@ -181,7 +186,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       const row = branchIndex % 4;
       if (current.length >= 100) return current;
       return [...current, {
-        id, number, kind, name: kind === 'context' ? `Context ${number}` : kind === 'agent' ? `AI Agent ${number}` : kind === 'tool-calling' ? `Tool Calling ${number}` : kind === 'human-approval' ? `Human Approval ${number}` : kind === 'skill' ? `Skill ${number}` : kind === 'agent-handoff' ? `Agent Handoff ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'workflow' || kind === 'context' || kind === 'agent-handoff', contextText: '', contextFiles: [], contextTags: [], handoffMode: 'receive',
+        id, number, kind, name: kind === 'context' ? `Context ${number}` : kind === 'agent' ? `AI Agent ${number}` : kind === 'tool-calling' ? `Tool Calling ${number}` : kind === 'human-approval' ? `Human Approval ${number}` : kind === 'skill' ? `Skill ${number}` : kind === 'agent-handoff' ? `Agent Handoff ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'workflow' || kind === 'context' || kind === 'agent-handoff', contextText: '', contextFiles: [], contextTags: [], handoffMode: 'receive', taskText: '',
         x: Math.max(8, position?.x ?? (current.length === 0 ? 105 : 310 + column * 190) - pan.x),
         y: Math.max(8, position?.y ?? (current.length === 0 ? 206 : 55 + row * 112 + (column % 2) * 20) - pan.y),
       }];
@@ -194,6 +199,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     setLinks(current => current.filter(link => link.source !== id && link.target !== id));
     setSelectedLink(null);
     if (editingNode === id) setEditingNode(null);
+    if (editingWorkflow === id) setEditingWorkflow(null);
     if (renamingNode === id) setRenamingNode(null);
     if (draft?.source === id || draft?.target === id) setDraft(null);
     requestAnimationFrame(() => canvasRef.current?.focus());
@@ -213,6 +219,17 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   function updateContextText(nodeId: string, value: string) {
     setNodes(current => current.map(node => node.id === nodeId ? { ...node, contextText: value, contextTags: parseContextTags(value, node.contextFiles, node.contextTags) } : node));
+  }
+
+  function selectTaskTag(node: GraphNode, name: string) {
+    const input = taskTextRef.current;
+    const picker = taskTagPicker;
+    if (!input || !picker) return;
+    const end = input.selectionStart;
+    const reference = `/${name}/`;
+    updateNode(node.id, { taskText: `${node.taskText.slice(0, picker.start)}${reference}${node.taskText.slice(end)}` });
+    setTaskTagPicker(null);
+    requestAnimationFrame(() => { input.focus(); input.setSelectionRange(picker.start + reference.length, picker.start + reference.length); });
   }
 
   const tagNames = nodes.flatMap(node => node.kind === 'context' ? tagNamesIn(node.contextText) : []).filter((name, index, all) => all.findIndex(item => item.toLowerCase() === name.toLowerCase()) === index);
@@ -407,7 +424,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
         {nodes.map(node => <ContextMenu key={node.id}><ContextMenuTrigger className="workflow-graph-node-group" style={{ left: node.x, top: node.y, zIndex: 4 + node.number % 3 }}><button
           type="button" className="canvas-node workflow-graph-node"
           aria-label={`${node.name}. ${node.active ? node.kind === 'agent-handoff' ? node.handoffMode === 'receive' ? 'Receive data' : 'Send handoff' : 'Active' : 'Inactive'}. Drag or use arrow keys to move. Press Delete to remove.`}
-          onDoubleClick={() => { if (node.kind === 'context') { setFileError(''); setEditingNode(node.id); } else if (node.kind === 'agent-handoff') setEditingHandoff(node.id); }}
+          onDoubleClick={() => { if (node.kind === 'context') { setFileError(''); setEditingNode(node.id); } else if (node.kind === 'workflow') setEditingWorkflow(node.id); else if (node.kind === 'agent-handoff') setEditingHandoff(node.id); }}
           onPointerDown={event => startDrag(event, node)}
           onPointerMove={event => moveDrag(event, node.id)}
           onPointerUp={event => { dragRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
@@ -429,6 +446,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           <button type="button" className={`node-port workflow-graph-port workflow-graph-port-output${links.some(link => link.source === node.id) ? ' is-connected' : ''}`} aria-label={`Connect from ${node.name}`} title="Output — drag to another node's input" onPointerDown={event => startConnection(event, node)} onPointerMove={event => moveConnection(event, node.id)} onPointerUp={event => endConnection(event, node.id)} onPointerCancel={event => { event.stopPropagation(); portDragRef.current = null; setDraft(null); }} onLostPointerCapture={event => { event.stopPropagation(); if (portDragRef.current) { portDragRef.current = null; setDraft(null); } }} onClick={event => { if (event.detail === 0) setDraft({ source: node.id, point: { x: node.x + 130, y: node.y + nodeWidth / 2 }, target: null }); }}/>
         </ContextMenuTrigger><ContextMenuContent className="node-context-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
           {node.kind === 'context' && <ContextMenuItem onClick={() => { setFileError(''); setEditingNode(node.id); }}><FileText/>Edit context</ContextMenuItem>}
+          {node.kind === 'workflow' && <ContextMenuItem onClick={() => setEditingWorkflow(node.id)}><Workflow/>Edit task</ContextMenuItem>}
           {node.kind === 'agent-handoff' && <ContextMenuItem onClick={() => setEditingHandoff(node.id)}><ArrowRightLeft/>Configure handoff</ContextMenuItem>}
           <ContextMenuItem onClick={() => { setNameDraft(node.name); setRenamingNode(node.id); }}><Pencil/>Rename</ContextMenuItem>
           <ContextMenuSub><ContextMenuSubTrigger><Shapes/>Change icon</ContextMenuSubTrigger><ContextMenuSubContent className="node-context-menu node-icon-grid" onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>{iconOptions.map(({ type, label, icon: Icon }) => <ContextMenuItem key={type} aria-label={label} title={label} data-selected={node.icon === type} onClick={() => updateNode(node.id, { icon: type })}><Icon/></ContextMenuItem>)}</ContextMenuSubContent></ContextMenuSub>
@@ -444,6 +462,40 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     </aside>
     </div>
     <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-rename-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" autoFocus maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
+    <Dialog open={Boolean(editingWorkflow)} onOpenChange={open => { if (!open) { setEditingWorkflow(null); setTaskTagPicker(null); } }}>
+      <DialogContent className="workflow-task-dialog">
+        <DialogTitle>Workflow task</DialogTitle>
+        <DialogDescription className="sr-only">Select specific context tags for this workflow node.</DialogDescription>
+        {(() => {
+          const node = nodes.find(item => item.id === editingWorkflow);
+          if (!node) return null;
+          const registry = buildConnectedTagRegistry(node.id, nodes, links);
+          const available = [...registry.definitions.values()];
+          const resolved = resolveConnectedInput(node.id, node.taskText, nodes, links);
+          const suggestions = taskTagPicker ? available.filter(tag => tag.name.toLowerCase().includes(taskTagPicker.query.trim().toLowerCase()) && !registry.conflicts.has(tag.name.toLocaleLowerCase('en-US'))).slice(0, 8) : [];
+          return <div className="workflow-task-form">
+            <label htmlFor="workflow-task-text">Task</label>
+            <div className="workflow-task-editor"><div ref={taskMirrorRef} className="workflow-context-syntax-mirror" aria-hidden="true">{renderContextSyntax(node.taskText)}</div><textarea ref={taskTextRef} id="workflow-task-text" value={node.taskText} maxLength={4000} onChange={event => { updateNode(node.id, { taskText: event.target.value }); setTaskTagPicker(openTagAt(event.target.value, event.target.selectionStart)); setTaskTagIndex(0); }} onSelect={event => setTaskTagPicker(openTagAt(event.currentTarget.value, event.currentTarget.selectionStart))} onScroll={event => { if (taskMirrorRef.current) taskMirrorRef.current.scrollTop = event.currentTarget.scrollTop; }} onKeyDown={event => {
+              if (!taskTagPicker || !suggestions.length) return;
+              if (event.key === 'Escape') { event.preventDefault(); setTaskTagPicker(null); }
+              if (event.key === 'ArrowDown') { event.preventDefault(); setTaskTagIndex(index => (index + 1) % suggestions.length); }
+              if (event.key === 'ArrowUp') { event.preventDefault(); setTaskTagIndex(index => (index + suggestions.length - 1) % suggestions.length); }
+              if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); selectTaskTag(node, suggestions[taskTagIndex]?.name || suggestions[0].name); }
+            }}/></div>
+            {taskTagPicker && suggestions.length > 0 && <div className="workflow-task-suggestions" role="listbox" aria-label="Connected tags">{suggestions.map((tag, index) => <button type="button" role="option" aria-selected={index === taskTagIndex} key={tag.id} onMouseDown={event => event.preventDefault()} onClick={() => selectTaskTag(node, tag.name)}>{tag.name}</button>)}</div>}
+            {available.length > 0 && <div className="workflow-task-tags" aria-label="Connected context tags">{available.map(tag => <button type="button" key={tag.id} disabled={registry.conflicts.has(tag.name.toLocaleLowerCase('en-US'))} onClick={() => {
+              const input = taskTextRef.current;
+              const start = input?.selectionStart ?? node.taskText.length;
+              const end = input?.selectionEnd ?? start;
+              const reference = `/${tag.name}/`;
+              updateNode(node.id, { taskText: `${node.taskText.slice(0, start)}${reference}${node.taskText.slice(end)}` });
+              requestAnimationFrame(() => { input?.focus(); input?.setSelectionRange(start + reference.length, start + reference.length); });
+            }}>{tag.name}</button>)}</div>}
+            {!resolved.ok && <small role="alert" className="workflow-task-error">{resolved.error}</small>}
+          </div>;
+        })()}
+      </DialogContent>
+    </Dialog>
     <Dialog open={Boolean(editingHandoff)} onOpenChange={open => { if (!open) setEditingHandoff(null); }}>
       <DialogContent className="workflow-handoff-dialog">
         <DialogTitle>Agent Handoff</DialogTitle>

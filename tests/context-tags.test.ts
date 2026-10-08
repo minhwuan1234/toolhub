@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildTagRegistry, resolveContextText, resolveTag, type ContextTagSource } from '../lib/context-tags';
+import { buildConnectedTagRegistry, buildTagRegistry, resolveConnectedInput, resolveContextText, resolveTag, type ContextTagSource } from '../lib/context-tags';
 
 const source = (text: string, name = 'Design'): ContextTagSource => ({
   id: 'context-1', kind: 'context', contextFiles: [],
@@ -37,4 +37,37 @@ test('missing and conflicting definitions fail instead of silently inserting the
     assert.match(conflicting.error, /conflicting/);
     assert.match(missing.error, /no saved content/);
   }
+});
+
+test('a connected context grants access without automatically injecting all of its tags', () => {
+  const nodes = [source('Use blue.', 'Color'), { ...source('Use Inter.', 'Type'), id: 'context-2' }];
+  const links = [{ source: 'context-1', target: 'node-3', command: 'input' }, { source: 'context-2', target: 'node-3', command: 'input' }];
+  assert.deepEqual(resolveConnectedInput('node-3', 'Make a screen.', nodes, links), { ok: true, content: 'Make a screen.' });
+  assert.deepEqual(resolveConnectedInput('node-3', 'Use /Color/ only.', nodes, links), { ok: true, content: 'Use Use blue. only.' });
+  assert.deepEqual(resolveConnectedInput('node-3', 'Use /Type/ and /Color/.', nodes, links), { ok: true, content: 'Use Use Inter. and Use blue..' });
+  assert.deepEqual([...buildConnectedTagRegistry('node-3', nodes, links).definitions.keys()], ['color', 'type']);
+});
+
+test('an unconnected or inactive context cannot provide a tag', () => {
+  const nodes = [source('Use blue.', 'Color'), { ...source('Use Inter.', 'Type'), id: 'context-2', active: false }];
+  const links = [{ source: 'context-1', target: 'another-node', command: 'input' }, { source: 'context-2', target: 'node-3', command: 'input' }];
+  const result = resolveConnectedInput('node-3', 'Use /Color/ and /Type/.', nodes, links);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.error, /no saved content/);
+});
+
+test('connected file input includes only the referenced file tag', () => {
+  const nodes: ContextTagSource[] = [{
+    id: 'files', kind: 'context',
+    contextFiles: [
+      { id: 'design-file', name: 'DESIGN.md', content: 'Design rules' },
+      { id: 'brief-file', name: 'brief.txt', content: 'Customer brief' },
+    ],
+    contextTags: [
+      { id: 'design-tag', name: 'Design', kind: 'file', text: '', fileId: 'design-file' },
+      { id: 'brief-tag', name: 'Brief', kind: 'file', text: '', fileId: 'brief-file' },
+    ],
+  }];
+  const links = [{ source: 'files', target: 'node-3', command: 'input' }];
+  assert.deepEqual(resolveConnectedInput('node-3', 'Apply /Design/.', nodes, links), { ok: true, content: 'Apply Design rules.' });
 });
