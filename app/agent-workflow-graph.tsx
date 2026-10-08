@@ -13,6 +13,7 @@ import { buildConnectedTagRegistry, buildTagRegistry, resolveConnectedInput, res
 import { agentLinksChangedEvent, agentOutputsChangedEvent, readAgentLinks, readAgentOutputs, receiveHandoffContent, routesForAgent, saveAgentOutput, syncDesignerHandoffDeliveries, type AgentLink, type AgentOutputSnapshot } from '@/lib/agent-handoff';
 import { defaultStructuredOutputSchema, validateStructuredOutput } from '@/lib/structured-output';
 import { sampleSingleScreenBrief } from '@/lib/sample-screen-brief';
+import { uiScreenContextCatalog, type UiScreenContext } from '@/lib/ui-screen-context-catalog';
 
 type ContextFile = { id: string; name: string; content: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
@@ -114,6 +115,9 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [links, setLinks] = useState<GraphLink[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [screenContextsSeeded, setScreenContextsSeeded] = useState(false);
+  const [screenContextError, setScreenContextError] = useState('');
+  const [screenContextRetry, setScreenContextRetry] = useState(0);
   const [selectedLink, setSelectedLink] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ source: string; point: { x: number; y: number }; target: string | null } | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -141,6 +145,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [tagPicker, setTagPicker] = useState<{ start: number; query: string; x: number; y: number } | null>(null);
   const [tagPickerIndex, setTagPickerIndex] = useState(0);
   const [tagPreview, setTagPreview] = useState<{ name: string; x: number; y: number } | null>(null);
+  const nodesRef = useRef<GraphNode[]>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const contextFileRef = useRef<HTMLInputElement>(null);
@@ -156,28 +161,75 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const portDragRef = useRef<{ source: string; pointerId: number } | null>(null);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(storageKey) || localStorage.getItem(previousStorageKey);
-      if (saved) {
-        const graph = JSON.parse(saved) as { nodes?: unknown; links?: unknown; pan?: { x?: unknown; y?: unknown } };
-        const savedNodes = Array.isArray(graph.nodes) ? graph.nodes.filter(isGraphNode).slice(0, 100).map(normalizeNode) : [];
-        const nodeIds = new Set(savedNodes.map(node => node.id));
-        setNodes(savedNodes);
-        setLinks(Array.isArray(graph.links) ? graph.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300).map(link => ({ ...link, command: 'input' as const })) : []);
-        if (Number.isFinite(graph.pan?.x) && Number.isFinite(graph.pan?.y)) setPan({ x: graph.pan!.x as number, y: graph.pan!.y as number });
-      } else {
-        const previous = JSON.parse(localStorage.getItem(legacyStorageKey) || '[]') as unknown;
-        if (Array.isArray(previous)) setNodes(previous.filter(isGraphNode).slice(0, 100).map(normalizeNode));
-      }
-    } catch { /* Start with an empty draft if local storage is unavailable. */ }
-    setLoaded(true);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      try {
+        const saved = localStorage.getItem(storageKey) || localStorage.getItem(previousStorageKey);
+        if (saved) {
+          const graph = JSON.parse(saved) as { nodes?: unknown; links?: unknown; pan?: { x?: unknown; y?: unknown }; screenContextsSeeded?: boolean };
+          const savedNodes = Array.isArray(graph.nodes) ? graph.nodes.filter(isGraphNode).slice(0, 100).map(normalizeNode) : [];
+          const nodeIds = new Set(savedNodes.map(node => node.id));
+          setNodes(savedNodes);
+          setLinks(Array.isArray(graph.links) ? graph.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300).map(link => ({ ...link, command: 'input' as const })) : []);
+          setScreenContextsSeeded(graph.screenContextsSeeded === true);
+          if (Number.isFinite(graph.pan?.x) && Number.isFinite(graph.pan?.y)) setPan({ x: graph.pan!.x as number, y: graph.pan!.y as number });
+        } else {
+          const previous = JSON.parse(localStorage.getItem(legacyStorageKey) || '[]') as unknown;
+          if (Array.isArray(previous)) setNodes(previous.filter(isGraphNode).slice(0, 100).map(normalizeNode));
+        }
+      } catch { /* Start with an empty draft if local storage is unavailable. */ }
+      setLoaded(true);
+    });
+    return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
 
   useEffect(() => {
     if (!loaded) return;
-    try { localStorage.setItem(storageKey, JSON.stringify({ nodes, links, pan })); syncDesignerHandoffDeliveries(); }
+    try { localStorage.setItem(storageKey, JSON.stringify({ nodes, links, pan, screenContextsSeeded })); syncDesignerHandoffDeliveries(); }
     catch { /* The graph remains usable for this session. */ }
-  }, [nodes, links, pan, loaded]);
+  }, [nodes, links, pan, loaded, screenContextsSeeded]);
+
+  useEffect(() => {
+    if (!loaded || screenContextsSeeded) return;
+    let cancelled = false;
+    async function addScreenContexts() {
+      try {
+        const response = await fetch('/api/ui-screen-contexts', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Could not load UI screen contexts.');
+        const payload = await response.json() as { contexts?: UiScreenContext[] };
+        const contexts = payload.contexts;
+        if (!Array.isArray(contexts) || contexts.length !== uiScreenContextCatalog.length || contexts.some(context =>
+          !uiScreenContextCatalog.some(item => item.id === context.id) || typeof context.name !== 'string' || typeof context.content !== 'string' || !context.content.trim()
+        )) throw new Error('UI screen contexts are incomplete.');
+        if (cancelled) return;
+        const currentNodes = nodesRef.current;
+        const startX = currentNodes.length ? Math.max(...currentNodes.map(node => node.x)) + 250 : 96;
+        const startY = 100;
+        const firstNumber = Math.max(0, ...currentNodes.map(node => node.number)) + 1;
+        const additions: GraphNode[] = contexts.map((context, index) => ({
+          id: `ui-screen-context:${context.id}`, number: firstNumber + index,
+          x: startX + index % 4 * 184, y: startY + Math.floor(index / 4) * 158,
+          kind: 'context', name: context.name, icon: 'document', active: true,
+          contextText: context.content.slice(0, maxContextCharacters), contextFiles: [],
+          contextTags: parseContextTags(context.content.slice(0, maxContextCharacters), []),
+          handoffMode: 'receive', testDocument: '', useTestDocument: false,
+          taskText: '', instructionPrompt: '', explicitInput: '', structuredOutput: '', lastOutput: '',
+        }));
+        setNodes(current => [...current, ...additions.filter(node => !current.some(existing => existing.id === node.id))].slice(0, 100));
+        const canvas = canvasRef.current;
+        if (canvas) setPan({ x: canvas.clientWidth / 2 - (startX + 308), y: canvas.clientHeight / 2 - (startY + 249) });
+        setScreenContextsSeeded(true);
+        setScreenContextError('');
+      } catch (error) {
+        if (!cancelled) setScreenContextError(error instanceof Error ? error.message : 'Could not load UI screen contexts.');
+      }
+    }
+    void addScreenContexts();
+    return () => { cancelled = true; };
+  }, [loaded, screenContextsSeeded, screenContextRetry]);
 
   useEffect(() => {
     const sync = () => { setAgentLinks(readAgentLinks()); setAgentOutputs(readAgentOutputs()); };
@@ -460,6 +512,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       onDragOver={event => { if (event.dataTransfer.types.includes('application/x-toolhub-graph-node')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragOver(true); } }}
       onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOver(false); }}
       onDrop={event => { setDragOver(false); const kind = event.dataTransfer.getData('application/x-toolhub-graph-node'); if (kind !== 'workflow' && kind !== 'context' && kind !== 'agent' && kind !== 'tool-calling' && kind !== 'human-approval' && kind !== 'skill' && kind !== 'agent-handoff') return; event.preventDefault(); const box = event.currentTarget.getBoundingClientRect(); addNode(kind, { x: event.clientX - box.left - pan.x - nodeWidth / 2, y: event.clientY - box.top - pan.y - nodeWidth / 2 }); }}>
+      {screenContextError && <div className="workflow-graph-context-error" role="alert">{screenContextError} <button type="button" onClick={() => setScreenContextRetry(value => value + 1)}>Retry</button></div>}
       <div ref={stageRef} className="workflow-graph-stage" style={{ minHeight: stageHeight, minWidth: stageWidth, transform: `translate3d(${pan.x}px, ${pan.y}px, 0)` }}>
         {loaded && nodes.length === 0 && <div className="workflow-graph-empty"><Workflow size={26}/><strong>Start with a node</strong><span>Click or drag a node from the sidebar, or press +.</span></div>}
         <svg className="workflow-graph-links" aria-label="Workflow links">
@@ -521,7 +574,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       <div className="node-picker-options workflow-graph-picker">{([{ kind: 'workflow', label: 'Workflow node', icon: Workflow }, { kind: 'context', label: 'Context Builder', icon: FileText }, { kind: 'agent', label: 'AI Agent', icon: Bot }, { kind: 'tool-calling', label: 'Tool Calling', icon: Wrench }, { kind: 'human-approval', label: 'Human Approval', icon: CircleCheck }, { kind: 'skill', label: 'Skill', icon: BookOpen }, { kind: 'agent-handoff', label: 'Agent Handoff', icon: ArrowRightLeft }] as const).map(({ kind, label, icon: Icon }) => <button type="button" key={kind} draggable={loaded && nodes.length < 100} disabled={!loaded || nodes.length >= 100} onDragStart={event => { event.dataTransfer.setData('application/x-toolhub-graph-node', kind); event.dataTransfer.effectAllowed = 'copy'; }} onDragEnd={() => setDragOver(false)} onClick={() => addNode(kind)}><span><Icon size={20}/></span>{label}</button>)}</div>
     </aside>
     </div>
-    <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-rename-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" autoFocus maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
+    <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-rename-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
     <Dialog open={Boolean(editingWorkflow)} onOpenChange={open => { if (!open) { setEditingWorkflow(null); setTaskTagPicker(null); } }}>
       <DialogContent className="workflow-task-dialog">
         <DialogTitle>Workflow task</DialogTitle>
@@ -559,7 +612,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     <Dialog open={Boolean(editingAgent)} onOpenChange={open => { if (!open && !runningAgent) { setEditingAgent(null); setOutputError(''); setInputTagPicker(null); } }}>
       <DialogContent className="node-inspector node-inspector-setup node-inspector-agent workflow-agent-dialog">
         <header className="inspector-heading"><span className="inspector-icon"><Bot size={21}/></span><DialogTitle>AI Agent</DialogTitle></header>
-        <DialogDescription className="sr-only">Define this node's instruction prompt, explicit input, and structured JSON output.</DialogDescription>
+        <DialogDescription className="sr-only">Define this node&apos;s instruction prompt, explicit input, and structured JSON output.</DialogDescription>
         {(() => {
           const node = nodes.find(item => item.id === editingAgent);
           if (!node) return null;
