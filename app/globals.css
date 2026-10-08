@@ -813,6 +813,19 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .workflow-task-tags button:hover:not(:disabled) { background:#e8e7e3; }
 .workflow-task-tags button:disabled { opacity:.5; cursor:default; }
 .workflow-task-error { color:#b42318; font-size:12px; }
+.workflow-agent-dialog[data-slot='dialog-content'] { display:flex; flex-direction:column; gap:18px; width:min(60vw,1000px); max-width:calc(100vw - 24px); max-height:min(80svh,820px); padding:24px; overflow-y:auto; background:#fff; color:#37352f; }
+.workflow-agent-dialog [data-slot='dialog-title'] { font-size:17px; font-weight:600; }
+.workflow-agent-form { display:flex; flex-direction:column; gap:10px; min-height:0; }
+.workflow-agent-form>label,.workflow-agent-result>strong { font-size:12px; font-weight:600; }
+.workflow-agent-form textarea { width:100%; min-height:260px; padding:14px; border:1px solid #deddd8; border-radius:8px; outline:none; resize:vertical; background:#fff; color:#37352f; font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.workflow-agent-form textarea:focus { border-color:#89877f; box-shadow:0 0 0 2px #37352f12; }
+.workflow-agent-actions { display:flex; justify-content:flex-end; gap:8px; }
+.workflow-agent-actions button { min-height:38px; padding:0 15px; border:1px solid #deddd8; border-radius:7px; background:#fff; color:#37352f; font:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+.workflow-agent-actions button:last-child { border-color:#37352f; background:#37352f; color:#fff; }
+.workflow-agent-actions button:disabled { opacity:.5; cursor:default; }
+.workflow-agent-result { display:flex; flex-direction:column; gap:8px; padding-top:12px; border-top:1px solid #eeede9; }
+.workflow-agent-result pre { max-height:260px; overflow:auto; margin:0; padding:12px; border:1px solid #e8e7e3; border-radius:8px; background:#fafaf9; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
+@media(max-width:760px) { .workflow-agent-dialog[data-slot='dialog-content'] { width:calc(100vw - 24px); } }
 .workflow-handoff-dialog[data-slot='dialog-content'] { display:flex; flex-direction:column; gap:18px; width:min(560px,calc(100vw - 24px)); max-height:min(80svh,760px); padding:24px; overflow-y:auto; background:#fff; color:#37352f; }
 .workflow-handoff-dialog [data-slot='dialog-title'] { font-size:17px; font-weight:600; }
 .workflow-handoff-form { display:flex; flex-direction:column; gap:10px; min-height:0; }

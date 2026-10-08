@@ -2,6 +2,8 @@ export type ContextTagSource = {
   id: string;
   kind: string;
   active?: boolean;
+  taskText?: string;
+  handoffMode?: 'receive' | 'send';
   contextFiles: Array<{ id: string; name: string; content: string }>;
   contextTags: Array<{ id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null }>;
 };
@@ -38,6 +40,23 @@ export function buildConnectedTagRegistry(targetNodeId: string, nodes: ContextTa
 
 export function resolveConnectedInput(targetNodeId: string, task: string, nodes: ContextTagSource[], links: ContextInputLink[]): TagResolution {
   return resolveContextText(task, buildConnectedTagRegistry(targetNodeId, nodes, links));
+}
+
+export function resolveGraphAgentInput(agentNodeId: string, nodes: ContextTagSource[], links: ContextInputLink[], handoffData: Record<string, string> = {}): TagResolution {
+  const workflowIds = new Set(links.filter(link => link.target === agentNodeId && link.command === 'input').map(link => link.source));
+  const workflows = nodes.filter(node => node.kind === 'workflow' && node.active !== false && workflowIds.has(node.id) && node.taskText?.trim());
+  if (!workflows.length) return { ok: false, error: 'Connect a Workflow node with a task to this AI Agent.' };
+  const parts: string[] = [];
+  for (const workflow of workflows) {
+    const resolved = resolveConnectedInput(workflow.id, workflow.taskText!, nodes, links);
+    if (!resolved.ok) return resolved;
+    const incoming = new Set(links.filter(link => link.target === workflow.id && link.command === 'input').map(link => link.source));
+    const handoffs = nodes.filter(node => node.kind === 'agent-handoff' && node.active !== false && node.handoffMode === 'receive' && incoming.has(node.id)).map(node => handoffData[node.id]).filter(Boolean);
+    parts.push([resolved.content, ...handoffs].join('\n\n'));
+  }
+  const content = parts.join('\n\n');
+  if (content.length > 4000) return { ok: false, error: 'Selected task and context exceed the 4,000 character model input limit.' };
+  return { ok: true, content };
 }
 
 export function resolveTag(name: string, registry: TagRegistry): TagResolution {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildConnectedTagRegistry, buildTagRegistry, resolveConnectedInput, resolveContextText, resolveTag, type ContextTagSource } from '../lib/context-tags';
+import { buildConnectedTagRegistry, buildTagRegistry, resolveConnectedInput, resolveContextText, resolveGraphAgentInput, resolveTag, type ContextTagSource } from '../lib/context-tags';
 
 const source = (text: string, name = 'Design'): ContextTagSource => ({
   id: 'context-1', kind: 'context', contextFiles: [],
@@ -70,4 +70,22 @@ test('connected file input includes only the referenced file tag', () => {
   }];
   const links = [{ source: 'files', target: 'node-3', command: 'input' }];
   assert.deepEqual(resolveConnectedInput('node-3', 'Apply /Design/.', nodes, links), { ok: true, content: 'Apply Design rules.' });
+});
+
+test('AI Agent input follows a linked task with selected tags and an incoming handoff', () => {
+  const nodes: ContextTagSource[] = [
+    source('Use blue.', 'Color'),
+    { ...source('Use Inter.', 'Type'), id: 'context-2' },
+    { id: 'handoff', kind: 'agent-handoff', active: true, handoffMode: 'receive', contextFiles: [], contextTags: [] },
+    { id: 'workflow', kind: 'workflow', active: true, taskText: 'Design a screen with /Color/.', contextFiles: [], contextTags: [] },
+    { id: 'agent', kind: 'agent', active: true, contextFiles: [], contextTags: [] },
+  ];
+  const links = [
+    { source: 'context-1', target: 'workflow', command: 'input' },
+    { source: 'context-2', target: 'workflow', command: 'input' },
+    { source: 'handoff', target: 'workflow', command: 'input' },
+    { source: 'workflow', target: 'agent', command: 'input' },
+  ];
+  assert.deepEqual(resolveGraphAgentInput('agent', nodes, links, { handoff: 'BA brief' }), { ok: true, content: 'Design a screen with Use blue..\n\nBA brief' });
+  assert.equal(resolveGraphAgentInput('another-agent', nodes, links).ok, false);
 });
