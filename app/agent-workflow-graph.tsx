@@ -61,6 +61,15 @@ function openTagAt(text: string, caret: number) {
   return match ? { start: caret - match[2].length - 1, query: match[2] } : null;
 }
 
+function tagAt(text: string, caret: number) {
+  for (const match of text.matchAll(/(^|\s)\/([^/*\n]{1,40})\//g)) {
+    const start = match.index + match[1].length;
+    const end = start + match[0].length - match[1].length;
+    if (caret >= start && caret < end) return match[2].trim();
+  }
+  return null;
+}
+
 function isGraphNode(value: unknown): value is GraphNode {
   if (!value || typeof value !== 'object') return false;
   const node = value as Record<string, unknown>;
@@ -112,6 +121,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [readingFiles, setReadingFiles] = useState(false);
   const [tagPicker, setTagPicker] = useState<{ start: number; query: string; x: number; y: number } | null>(null);
   const [tagPickerIndex, setTagPickerIndex] = useState(0);
+  const [tagPreview, setTagPreview] = useState<{ name: string; x: number; y: number } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const contextFileRef = useRef<HTMLInputElement>(null);
@@ -191,13 +201,20 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   }
 
   const tagNames = nodes.flatMap(node => node.kind === 'context' ? tagNamesIn(node.contextText) : []).filter((name, index, all) => all.findIndex(item => item.toLowerCase() === name.toLowerCase()) === index);
+  const tagDefinitions = new Map<string, string>();
+  for (const node of nodes) {
+    if (node.kind !== 'context') continue;
+    for (const tag of node.contextTags) {
+      const key = tag.name.toLowerCase();
+      if (!tagDefinitions.has(key)) tagDefinitions.set(key, tag.kind === 'file' ? node.contextFiles.find(file => file.id === tag.fileId)?.content || '' : tag.text);
+    }
+  }
   const suggestedTags = tagPicker ? tagNames.filter(name => name.toLowerCase().includes(tagPicker.query.trim().toLowerCase())).slice(0, 8) : [];
 
-  function syncTagPicker(text: string, caret: number) {
+  function menuPosition(text: string, caret: number) {
     const input = contextTextRef.current;
     const editor = contextEditorRef.current;
-    const open = openTagAt(text, caret);
-    if (!open || !input || !editor || !tagNames.some(name => name.toLowerCase().includes(open.query.trim().toLowerCase()))) { setTagPicker(null); return; }
+    if (!input || !editor) return null;
     const measure = document.createElement('div');
     const style = getComputedStyle(input);
     Object.assign(measure.style, { position: 'absolute', top: '0', left: '0', visibility: 'hidden', width: `${input.clientWidth}px`, boxSizing: 'border-box', padding: style.padding, font: style.font, letterSpacing: style.letterSpacing, whiteSpace: 'pre-wrap', overflowWrap: 'break-word', pointerEvents: 'none' });
@@ -212,8 +229,24 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     const x = Math.max(8, Math.min(markerRect.left - editorRect.left, editor.clientWidth - 228));
     const below = markerRect.bottom - editorRect.top - input.scrollTop + 5;
     const y = below + 220 < editor.clientHeight ? below : Math.max(8, markerRect.top - editorRect.top - input.scrollTop - 220);
-    setTagPicker({ ...open, x, y });
+    return { x, y };
+  }
+
+  function syncTagPicker(text: string, caret: number) {
+    const open = openTagAt(text, caret);
+    if (!open || !tagNames.some(name => name.toLowerCase().includes(open.query.trim().toLowerCase()))) { setTagPicker(null); return; }
+    const position = menuPosition(text, caret);
+    if (!position) { setTagPicker(null); return; }
+    setTagPicker({ ...open, ...position });
     setTagPickerIndex(0);
+  }
+
+  function syncTagPreview(text: string, caret: number) {
+    const name = tagAt(text, caret);
+    const content = name ? tagDefinitions.get(name.toLowerCase()) : undefined;
+    const position = content !== undefined ? menuPosition(text, caret) : null;
+    const editor = contextEditorRef.current;
+    setTagPreview(name && content !== undefined && position && editor ? { name, x: Math.min(position.x, Math.max(8, editor.clientWidth - 368)), y: position.y } : null);
   }
 
   function selectTagSuggestion(name: string, node: GraphNode) {
@@ -224,6 +257,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     const value = `${node.contextText.slice(0, picker.start)}/${name}/ ${node.contextText.slice(end)}`;
     updateContextText(node.id, value);
     setTagPicker(null);
+    setTagPreview(null);
     requestAnimationFrame(() => { input.focus(); input.setSelectionRange(picker.start + name.length + 3, picker.start + name.length + 3); });
   }
 
@@ -400,7 +434,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     </aside>
     </div>
     <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-rename-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" autoFocus maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
-    <Dialog open={Boolean(editingNode)} onOpenChange={open => { if (!open) { setEditingNode(null); setTagPicker(null); } }}>
+    <Dialog open={Boolean(editingNode)} onOpenChange={open => { if (!open) { setEditingNode(null); setTagPicker(null); setTagPreview(null); } }}>
       <DialogContent className="node-inspector node-inspector-setup node-inspector-agent workflow-context-dialog">
         <header className="inspector-heading"><span className="inspector-icon"><FileText size={21}/></span><DialogTitle>Context Builder</DialogTitle></header>
         <DialogDescription className="sr-only">Write context and tags in one field, and attach files for connected workflow nodes.</DialogDescription>
@@ -414,14 +448,15 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
               <div className="workflow-context-composer">
                 <div ref={contextEditorRef} className="workflow-context-editor">
                   <div ref={contextMirrorRef} className="workflow-context-syntax-mirror" aria-hidden="true">{renderContextSyntax(node.contextText)}</div>
-                  <textarea ref={contextTextRef} id="workflow-context-text" disabled={readingFiles} value={node.contextText} maxLength={Math.max(0, maxContextCharacters - usedCharacters)} onChange={event => { updateContextText(node.id, event.target.value); syncTagPicker(event.target.value, event.target.selectionStart); }} onSelect={event => syncTagPicker(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyDown={event => {
+                  <textarea ref={contextTextRef} id="workflow-context-text" disabled={readingFiles} value={node.contextText} maxLength={Math.max(0, maxContextCharacters - usedCharacters)} onChange={event => { updateContextText(node.id, event.target.value); syncTagPicker(event.target.value, event.target.selectionStart); setTagPreview(null); }} onSelect={event => { syncTagPicker(event.currentTarget.value, event.currentTarget.selectionStart); syncTagPreview(event.currentTarget.value, event.currentTarget.selectionStart); }} onClick={event => syncTagPreview(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyDown={event => {
                     if (!tagPicker || !suggestedTags.length) return;
                     if (event.key === 'Escape') { event.preventDefault(); setTagPicker(null); }
                     if (event.key === 'ArrowDown') { event.preventDefault(); setTagPickerIndex(index => (index + 1) % suggestedTags.length); }
                     if (event.key === 'ArrowUp') { event.preventDefault(); setTagPickerIndex(index => (index + suggestedTags.length - 1) % suggestedTags.length); }
                     if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); selectTagSuggestion(suggestedTags[tagPickerIndex] || suggestedTags[0], node); }
-                  }} onScroll={event => { if (contextMirrorRef.current) contextMirrorRef.current.scrollTop = event.currentTarget.scrollTop; setTagPicker(null); }} placeholder="Enter context or attach files..."/>
+                  }} onScroll={event => { if (contextMirrorRef.current) contextMirrorRef.current.scrollTop = event.currentTarget.scrollTop; setTagPicker(null); setTagPreview(null); }} placeholder="Enter context or attach files..."/>
                   {tagPicker && suggestedTags.length > 0 && <div className="workflow-context-suggestions" role="listbox" aria-label="Existing tags" style={{ left: tagPicker.x, top: tagPicker.y }}>{suggestedTags.map((name, index) => <button type="button" role="option" aria-selected={index === tagPickerIndex} key={name} onMouseDown={event => event.preventDefault()} onClick={() => selectTagSuggestion(name, node)}>{name}</button>)}</div>}
+                  {tagPreview && tagDefinitions.has(tagPreview.name.toLowerCase()) && <div className="workflow-context-tag-preview" role="dialog" aria-label={`Content for ${tagPreview.name}`} style={{ left: tagPreview.x, top: tagPreview.y }}><div className="workflow-context-tag-preview-heading"><strong>{tagPreview.name}</strong><button type="button" aria-label="Close tag content" onClick={() => setTagPreview(null)}>×</button></div><div className="workflow-context-tag-preview-body">{tagDefinitions.get(tagPreview.name.toLowerCase())}</div></div>}
                 </div>
                 <div className="workflow-context-composer-footer"><div className="workflow-context-file-list">{node.contextFiles.map(file => <span key={file.id} className="workflow-context-file-chip" title={file.name}><FileText size={14}/>{file.name}<button type="button" aria-label={`Remove ${file.name}`} disabled={readingFiles} onClick={() => updateNode(node.id, { contextFiles: node.contextFiles.filter(item => item.id !== file.id), contextTags: node.contextTags.filter(tag => tag.fileId !== file.id) })}>×</button></span>)}</div><input ref={contextFileRef} id="workflow-context-file" type="file" accept={contextFileAccept} multiple hidden onChange={event => { void attachContextFiles(node.id, event.target.files); }}/><button type="button" className="workflow-context-attach" disabled={readingFiles} onClick={() => contextFileRef.current?.click()}><FileText size={16}/>{readingFiles ? 'Reading files…' : 'Attach files'}</button></div>
               </div>
