@@ -9,10 +9,11 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { iconOptions, type NodeIcon } from './node-picker';
 import { contextFileAccept, maxContextCharacters, maxContextFileBytes, readContextFile } from '@/lib/context-file-reader';
 import { buildTagRegistry, resolveTag } from '@/lib/context-tags';
+import { agentLinksChangedEvent, agentOutputsChangedEvent, readAgentLinks, readAgentOutputs, routesForAgent, syncDesignerHandoffDeliveries, type AgentLink, type AgentOutputSnapshot } from '@/lib/agent-handoff';
 
 type ContextFile = { id: string; name: string; content: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
-type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context' | 'agent' | 'tool-calling' | 'human-approval' | 'skill' | 'agent-handoff'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[]; contextTags: ContextTag[] };
+type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context' | 'agent' | 'tool-calling' | 'human-approval' | 'skill' | 'agent-handoff'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[]; contextTags: ContextTag[]; handoffMode: 'receive' | 'send' };
 type GraphLink = { id: string; source: string; target: string; command: 'input' };
 
 const storageKey = 'toolhub:designer-graph:v3';
@@ -88,7 +89,7 @@ function normalizeNode(node: GraphNode): GraphNode {
   }
   contextText = contextText.slice(0, maxContextCharacters);
   const contextTags = parseContextTags(contextText, contextFiles, previousTags);
-  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : kind === 'agent' ? `AI Agent ${node.number}` : kind === 'tool-calling' ? `Tool Calling ${node.number}` : kind === 'human-approval' ? `Human Approval ${node.number}` : kind === 'skill' ? `Skill ${node.number}` : kind === 'agent-handoff' ? `Agent Handoff ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: node.active !== false, contextText, contextFiles, contextTags };
+  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : kind === 'agent' ? `AI Agent ${node.number}` : kind === 'tool-calling' ? `Tool Calling ${node.number}` : kind === 'human-approval' ? `Human Approval ${node.number}` : kind === 'skill' ? `Skill ${node.number}` : kind === 'agent-handoff' ? `Agent Handoff ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'agent-handoff' && !node.handoffMode ? true : node.active !== false, contextText, contextFiles, contextTags, handoffMode: node.handoffMode === 'send' ? 'send' : 'receive' };
 }
 
 function isGraphLink(value: unknown): value is GraphLink {
@@ -116,6 +117,9 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [panning, setPanning] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [editingNode, setEditingNode] = useState<string | null>(null);
+  const [editingHandoff, setEditingHandoff] = useState<string | null>(null);
+  const [agentLinks, setAgentLinks] = useState<AgentLink[]>([]);
+  const [agentOutputs, setAgentOutputs] = useState<AgentOutputSnapshot[]>([]);
   const [fileError, setFileError] = useState('');
   const [renamingNode, setRenamingNode] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
@@ -153,9 +157,19 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   useEffect(() => {
     if (!loaded) return;
-    try { localStorage.setItem(storageKey, JSON.stringify({ nodes, links, pan })); }
+    try { localStorage.setItem(storageKey, JSON.stringify({ nodes, links, pan })); syncDesignerHandoffDeliveries(); }
     catch { /* The graph remains usable for this session. */ }
   }, [nodes, links, pan, loaded]);
+
+  useEffect(() => {
+    const sync = () => { setAgentLinks(readAgentLinks()); setAgentOutputs(readAgentOutputs()); };
+    const onStorage = (event: StorageEvent) => { if (event.key === 'toolhub:agent-links:v1' || event.key === 'toolhub:agent-outputs:v1') sync(); };
+    sync();
+    window.addEventListener(agentLinksChangedEvent, sync);
+    window.addEventListener(agentOutputsChangedEvent, sync);
+    window.addEventListener('storage', onStorage);
+    return () => { window.removeEventListener(agentLinksChangedEvent, sync); window.removeEventListener(agentOutputsChangedEvent, sync); window.removeEventListener('storage', onStorage); };
+  }, []);
 
   function addNode(kind: GraphNode['kind'] = 'workflow', position?: { x: number; y: number }) {
     if (nodes.length >= 100) return;
@@ -167,7 +181,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       const row = branchIndex % 4;
       if (current.length >= 100) return current;
       return [...current, {
-        id, number, kind, name: kind === 'context' ? `Context ${number}` : kind === 'agent' ? `AI Agent ${number}` : kind === 'tool-calling' ? `Tool Calling ${number}` : kind === 'human-approval' ? `Human Approval ${number}` : kind === 'skill' ? `Skill ${number}` : kind === 'agent-handoff' ? `Agent Handoff ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'workflow' || kind === 'context', contextText: '', contextFiles: [], contextTags: [],
+        id, number, kind, name: kind === 'context' ? `Context ${number}` : kind === 'agent' ? `AI Agent ${number}` : kind === 'tool-calling' ? `Tool Calling ${number}` : kind === 'human-approval' ? `Human Approval ${number}` : kind === 'skill' ? `Skill ${number}` : kind === 'agent-handoff' ? `Agent Handoff ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'workflow' || kind === 'context' || kind === 'agent-handoff', contextText: '', contextFiles: [], contextTags: [], handoffMode: 'receive',
         x: Math.max(8, position?.x ?? (current.length === 0 ? 105 : 310 + column * 190) - pan.x),
         y: Math.max(8, position?.y ?? (current.length === 0 ? 206 : 55 + row * 112 + (column % 2) * 20) - pan.y),
       }];
@@ -335,6 +349,8 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   const stageHeight = Math.max(440, ...nodes.map(node => node.y + nodeHeight + 28));
   const stageWidth = Math.max(760, ...nodes.map(node => node.x + nodeWidth + 28));
+  const handoffRoutes = routesForAgent(agentLinks, 'designer');
+  const agentLabel = (id: string) => ({ ba: 'BA Agent', designer: 'UI/UX Agent', developer: 'Developer Agent' })[id as 'ba' | 'designer' | 'developer'] || id;
 
   function startPan(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0 || event.target !== event.currentTarget && event.target !== stageRef.current) return;
@@ -390,8 +406,8 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
         </svg>
         {nodes.map(node => <ContextMenu key={node.id}><ContextMenuTrigger className="workflow-graph-node-group" style={{ left: node.x, top: node.y, zIndex: 4 + node.number % 3 }}><button
           type="button" className="canvas-node workflow-graph-node"
-          aria-label={`${node.name}. ${node.active ? 'Active' : 'Inactive'}. Drag or use arrow keys to move. Press Delete to remove.`}
-          onDoubleClick={() => { if (node.kind === 'context') { setFileError(''); setEditingNode(node.id); } }}
+          aria-label={`${node.name}. ${node.active ? node.kind === 'agent-handoff' ? node.handoffMode === 'receive' ? 'Receive data' : 'Send handoff' : 'Active' : 'Inactive'}. Drag or use arrow keys to move. Press Delete to remove.`}
+          onDoubleClick={() => { if (node.kind === 'context') { setFileError(''); setEditingNode(node.id); } else if (node.kind === 'agent-handoff') setEditingHandoff(node.id); }}
           onPointerDown={event => startDrag(event, node)}
           onPointerMove={event => moveDrag(event, node.id)}
           onPointerUp={event => { dragRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
@@ -408,11 +424,12 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
               y: Math.max(8, item.y + delta[1] * step),
             } : item));
           }}
-        >{(() => { const Icon = iconOptions.find(option => option.type === node.icon)?.icon || Workflow; return <Icon size={28} strokeWidth={1.6} aria-hidden="true"/>; })()}</button><span className="workflow-graph-node-label node-name" title={node.name}>{node.name}</span><span className={`node-status${node.active ? ' is-active' : ''}`}><span aria-hidden="true"/>{node.active ? 'Active' : 'Inactive'}</span>
+        >{(() => { const Icon = iconOptions.find(option => option.type === node.icon)?.icon || Workflow; return <Icon size={28} strokeWidth={1.6} aria-hidden="true"/>; })()}</button><span className="workflow-graph-node-label node-name" title={node.name}>{node.name}</span><span className={`node-status${node.active ? ' is-active' : ''}`}><span aria-hidden="true"/>{!node.active ? 'Inactive' : node.kind === 'agent-handoff' ? node.handoffMode === 'receive' ? 'Receive' : 'Send' : 'Active'}</span>
           <button type="button" className={`node-port workflow-graph-port workflow-graph-port-input${draft && draft.source !== node.id ? ' can-connect' : ''}${draft?.target === node.id ? ' is-target' : ''}${links.some(link => link.target === node.id) ? ' is-connected' : ''}`} data-workflow-input={node.id} aria-label={`Input of ${node.name}`} title="Input — drop a connection here" onPointerDown={event => event.stopPropagation()} onClick={() => { if (draft) connect(draft.source, node.id); }}/>
           <button type="button" className={`node-port workflow-graph-port workflow-graph-port-output${links.some(link => link.source === node.id) ? ' is-connected' : ''}`} aria-label={`Connect from ${node.name}`} title="Output — drag to another node's input" onPointerDown={event => startConnection(event, node)} onPointerMove={event => moveConnection(event, node.id)} onPointerUp={event => endConnection(event, node.id)} onPointerCancel={event => { event.stopPropagation(); portDragRef.current = null; setDraft(null); }} onLostPointerCapture={event => { event.stopPropagation(); if (portDragRef.current) { portDragRef.current = null; setDraft(null); } }} onClick={event => { if (event.detail === 0) setDraft({ source: node.id, point: { x: node.x + 130, y: node.y + nodeWidth / 2 }, target: null }); }}/>
         </ContextMenuTrigger><ContextMenuContent className="node-context-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
           {node.kind === 'context' && <ContextMenuItem onClick={() => { setFileError(''); setEditingNode(node.id); }}><FileText/>Edit context</ContextMenuItem>}
+          {node.kind === 'agent-handoff' && <ContextMenuItem onClick={() => setEditingHandoff(node.id)}><ArrowRightLeft/>Configure handoff</ContextMenuItem>}
           <ContextMenuItem onClick={() => { setNameDraft(node.name); setRenamingNode(node.id); }}><Pencil/>Rename</ContextMenuItem>
           <ContextMenuSub><ContextMenuSubTrigger><Shapes/>Change icon</ContextMenuSubTrigger><ContextMenuSubContent className="node-context-menu node-icon-grid" onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>{iconOptions.map(({ type, label, icon: Icon }) => <ContextMenuItem key={type} aria-label={label} title={label} data-selected={node.icon === type} onClick={() => updateNode(node.id, { icon: type })}><Icon/></ContextMenuItem>)}</ContextMenuSubContent></ContextMenuSub>
           <ContextMenuItem onClick={() => updateNode(node.id, { active: !node.active })}><Power/>{node.active ? 'Set inactive' : 'Set active'}</ContextMenuItem>
@@ -427,6 +444,27 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     </aside>
     </div>
     <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-rename-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" autoFocus maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
+    <Dialog open={Boolean(editingHandoff)} onOpenChange={open => { if (!open) setEditingHandoff(null); }}>
+      <DialogContent className="workflow-handoff-dialog">
+        <DialogTitle>Agent Handoff</DialogTitle>
+        <DialogDescription className="sr-only">Choose whether this node receives or sends agent data.</DialogDescription>
+        {(() => {
+          const node = nodes.find(item => item.id === editingHandoff);
+          if (!node) return null;
+          const peers = node.handoffMode === 'receive' ? handoffRoutes.incoming : handoffRoutes.outgoing;
+          const visibleOutputs = node.handoffMode === 'receive' ? agentOutputs.filter(output => peers.includes(output.agentId)) : agentOutputs.filter(output => output.agentId === 'designer');
+          return <div className="workflow-handoff-form">
+            <label htmlFor="workflow-handoff-mode">Mode</label>
+            <select id="workflow-handoff-mode" value={node.handoffMode} onChange={event => updateNode(node.id, { handoffMode: event.target.value === 'send' ? 'send' : 'receive', active: true })}>
+              <option value="receive">Receive data</option>
+              <option value="send">Send handoff</option>
+            </select>
+            <div className="workflow-handoff-route"><strong>{node.handoffMode === 'receive' ? 'Sources from Toolhub' : 'Destinations from Toolhub'}</strong><span>{peers.length ? peers.map(agentLabel).join(', ') : 'No connected agent'}</span></div>
+            <div className="workflow-handoff-data"><strong>{node.handoffMode === 'receive' ? 'Received data' : 'Available UI/UX data'}</strong>{visibleOutputs.length ? visibleOutputs.map(output => <article key={output.agentId}><span>{agentLabel(output.agentId)}</span><div>{output.content}</div></article>) : <span className="workflow-handoff-empty">No agent output yet</span>}</div>
+          </div>;
+        })()}
+      </DialogContent>
+    </Dialog>
     <Dialog open={Boolean(editingNode)} onOpenChange={open => { if (!open) { setEditingNode(null); setTagPicker(null); setTagPreview(null); } }}>
       <DialogContent className="node-inspector node-inspector-setup node-inspector-agent workflow-context-dialog">
         <header className="inspector-heading"><span className="inspector-icon"><FileText size={21}/></span><DialogTitle>Context Builder</DialogTitle></header>

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type SyntheticEvent, type KeyboardEvent } 
 import { ArrowUp, Bot, ChevronDown, Code2, ListChecks, Palette, Sparkles } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import type { AgentId, AgentResult } from '@/lib/agent-team';
+import { handoffContextForAgent, readActiveDesignerHandoffModes, readAgentLinks, readAgentOutputs, readHandoffDeliveries, saveAgentOutput } from '@/lib/agent-handoff';
 import type { AgentState } from './department-board';
 
 type ChatMessage = { id: string; kind: 'user' | 'agent' | 'error'; text: string; agentId?: AgentId; name?: string };
@@ -49,13 +50,18 @@ export function AgentChat({ onAgentState, onConfigured, refreshKey }: { onAgentS
     const text = input.trim();
     if (!text || running || !configured) return;
     const context = messages.slice(-8).map(message => `${message.kind === 'user' ? 'User' : message.name || 'System'}: ${message.text}`).join('\n\n').slice(-12000);
+    const links = readAgentLinks();
+    const outputs = readAgentOutputs();
+    const deliveries = readHandoffDeliveries();
+    const modes = readActiveDesignerHandoffModes();
+    const handoffs = Object.fromEntries(agents.map(agent => [agent.id, handoffContextForAgent(agent.id, links, outputs, deliveries, modes)]).filter(([, value]) => value));
     setMessages(current => [...current, { id: crypto.randomUUID(), kind: 'user', text }]);
     setInput('');
     setRunning(true);
     setActiveAgent(null);
     let workingAgent: AgentId | null = null;
     try {
-      const response = await fetch('/api/agent-chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, target, context }) });
+      const response = await fetch('/api/agent-chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, target, context, handoffs }) });
       if (!response.ok || !response.body) {
         const data = await response.json().catch(() => ({})) as { error?: string };
         throw new Error(data.error || 'Unable to send the request.');
@@ -75,6 +81,7 @@ export function AgentChat({ onAgentState, onConfigured, refreshKey }: { onAgentS
           if (item.type === 'start') { workingAgent = item.agentId; setActiveAgent(item.agentId); onAgentState(item.agentId, 'working'); }
           if (item.type === 'result') {
             window.dispatchEvent(new Event('toolhub:agent-api-spend'));
+            saveAgentOutput({ agentId: item.result.agentId, runId: crypto.randomUUID(), content: item.result.content, createdAt: new Date().toISOString() });
             setMessages(current => [...current, { id: crypto.randomUUID(), kind: 'agent', agentId: item.result.agentId, name: item.result.name, text: item.result.content }]);
             setActiveAgent(null);
             onAgentState(item.result.agentId, 'complete');

@@ -5,10 +5,12 @@ import {useEffect,useId,useRef,useState,type RefObject,type KeyboardEvent} from 
 import {ArrowLeft,ArrowRight,Trash2,X} from 'lucide-react';
 import type {BoardNode} from './node-picker';
 import type {Viewport} from '@/lib/canvas-viewport';
+import {agentLinksChangedEvent,agentLinksStorageKey,syncDesignerHandoffDeliveries} from '@/lib/agent-handoff';
 
 type Point={x:number;y:number};
 type Edge={source:string;target:string};
 type Draft={source:string;point:Point;target:string|null};
+const boardEdgesStorageKey='toolhub:board-edges:v1';
 const portPoint=(node:BoardNode,output:boolean):Point=>({x:node.x+(output?104:40),y:node.y+32});
 function curve(start:Point,end:Point){
  const bend=Math.max(60,Math.abs(end.x-start.x)*0.45);
@@ -18,10 +20,31 @@ export function useNodeConnections(nodes:BoardNode[],view:Viewport,viewport:RefO
  const [selected,setSelected]=useState<{edge:Edge;point:Point}|null>(null);
  const menuRef=useRef<HTMLDivElement>(null);
  const [edges,setEdges]=useState<Edge[]>([]);
+ const [edgesLoaded,setEdgesLoaded]=useState(false);
  const [draft,setDraft]=useState<Draft|null>(null);
  const [announcement,setAnnouncement]=useState('');
  const drag=useRef<{source:string;pointer:number}|null>(null);
  const marker=useId().replace(/:/g,'');
+ useEffect(()=>{
+  try{
+   const saved:unknown=JSON.parse(localStorage.getItem(boardEdgesStorageKey)||'[]');
+   if(Array.isArray(saved))queueMicrotask(()=>setEdges(saved.filter((edge):edge is Edge=>Boolean(edge&&typeof edge.source==='string'&&typeof edge.target==='string'&&edge.source!==edge.target)).slice(0,300)));
+  }catch{/* Keep an empty canvas when browser storage is unavailable. */}
+  queueMicrotask(()=>setEdgesLoaded(true));
+ },[]);
+ useEffect(()=>{
+  if(!edgesLoaded)return;
+  try{
+   localStorage.setItem(boardEdgesStorageKey,JSON.stringify(edges));
+   const agentLinks=edges.flatMap(edge=>{
+    const source=nodes.find(node=>node.id===edge.source)?.agentId;
+    const target=nodes.find(node=>node.id===edge.target)?.agentId;
+    return source&&target?[{source,target}]:[];
+   });
+   const value=JSON.stringify(agentLinks);
+   if(localStorage.getItem(agentLinksStorageKey)!==value){localStorage.setItem(agentLinksStorageKey,value);window.dispatchEvent(new Event(agentLinksChangedEvent));syncDesignerHandoffDeliveries();}
+  }catch{/* Canvas connections remain usable for this session. */}
+ },[edges,nodes,edgesLoaded]);
  useEffect(()=>{
   if(!selected)return;
   menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();

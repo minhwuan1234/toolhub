@@ -27,14 +27,16 @@ export async function POST(request: Request) {
     if (Number(request.headers.get('content-length') || 0) > 36000) return Response.json({ error: 'Request is too large.' }, { status: 413 });
     const raw = await request.text();
     if (raw.length > 36000) return Response.json({ error: 'Request is too large.' }, { status: 413 });
-    const body = JSON.parse(raw) as { message?: unknown; target?: unknown; context?: unknown };
+    const body = JSON.parse(raw) as { message?: unknown; target?: unknown; context?: unknown; handoffs?: unknown };
     if (typeof body.message !== 'string' || body.message.trim().length < 3 || body.message.length > 4000) return Response.json({ error: 'Message must be 3–4,000 characters.' }, { status: 400 });
     const cards = await listAgentCards();
     if (body.target !== 'all' && !cards.some(card => card.id === body.target)) return Response.json({ error: 'Choose a valid agent.' }, { status: 400 });
     if (body.context !== undefined && (typeof body.context !== 'string' || body.context.length > 12000)) return Response.json({ error: 'Conversation context is too long.' }, { status: 400 });
+    if (body.handoffs !== undefined && (typeof body.handoffs !== 'object' || body.handoffs === null || Array.isArray(body.handoffs) || Object.entries(body.handoffs).some(([id, value]) => !cards.some(card => card.id === id) || typeof value !== 'string' || value.length > 8000))) return Response.json({ error: 'Invalid handoff data.' }, { status: 400 });
 
     const message = body.message;
     const context = typeof body.context === 'string' ? body.context : '';
+    const handoffs = (body.handoffs || {}) as Record<string, string>;
     const selected = body.target === 'all' ? agents : cards.filter(card => card.id === body.target);
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
@@ -45,7 +47,7 @@ export async function POST(request: Request) {
           for (const agent of selected) {
             send({ type: 'start', agentId: agent.id });
             const handoff = results.map(result => `## ${result.name} handoff\n${result.content}`).join('\n\n');
-            const tool = await invokeMcpTool('agent_run', { agent_id: agent.id, message, context: [context, handoff].filter(Boolean).join('\n\n').slice(-12000) });
+            const tool = await invokeMcpTool('agent_run', { agent_id: agent.id, message, context: [context, handoff, handoffs[agent.id]].filter(Boolean).join('\n\n').slice(-12000) });
             if (tool.isError) throw new Error(String(tool.structuredContent?.error || 'Agent request failed.'));
             const result = tool.structuredContent?.result as AgentResult | undefined;
             if (!result) throw new Error('The MCP server returned no agent result.');

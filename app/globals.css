@@ -796,6 +796,16 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .workflow-rename-dialog input { width:100%; padding:10px 12px; border:1px solid #d5d4cf; border-radius:8px; background:#fff; color:#37352f; font:inherit; font-size:13px; }
 .workflow-rename-dialog form button { align-self:flex-end; padding:8px 16px; border:0; border-radius:7px; background:#37352f; color:#fff; cursor:pointer; }
 .workflow-rename-dialog form button:disabled { opacity:.5; cursor:default; }
+.workflow-handoff-dialog[data-slot='dialog-content'] { display:flex; flex-direction:column; gap:18px; width:min(560px,calc(100vw - 24px)); max-height:min(80svh,760px); padding:24px; overflow-y:auto; background:#fff; color:#37352f; }
+.workflow-handoff-dialog [data-slot='dialog-title'] { font-size:17px; font-weight:600; }
+.workflow-handoff-form { display:flex; flex-direction:column; gap:10px; min-height:0; }
+.workflow-handoff-form>label,.workflow-handoff-route strong,.workflow-handoff-data>strong { font-size:12px; font-weight:600; }
+.workflow-handoff-form select { width:100%; min-height:44px; padding:0 12px; border:1px solid #deddd8; border-radius:8px; background:#fff; color:#37352f; font:inherit; font-size:13px; }
+.workflow-handoff-route,.workflow-handoff-data { display:flex; flex-direction:column; gap:8px; padding-top:12px; border-top:1px solid #eeede9; }
+.workflow-handoff-route span,.workflow-handoff-empty { color:#787774; font-size:13px; }
+.workflow-handoff-data article { overflow:hidden; border:1px solid #e8e7e3; border-radius:8px; }
+.workflow-handoff-data article>span { display:block; padding:8px 10px; border-bottom:1px solid #eeede9; font-size:12px; font-weight:600; }
+.workflow-handoff-data article>div { max-height:220px; overflow:auto; padding:10px; font-size:12px; line-height:1.5; overflow-wrap:anywhere; white-space:pre-wrap; }
 .designer-graph-screen { display:flex; flex:1; flex-direction:column; min-height:calc(100svh - 56px); padding:0; background:#fff; }
 .designer-graph-screen>.workflow-graph { overflow:hidden; border:0; border-radius:0; box-shadow:none; }
 .canvas-board-error { position:absolute; z-index:21; left:24px; top:24px; display:flex; align-items:center; gap:12px; max-width:calc(100% - 120px); margin:0; padding:10px 12px; border:1px solid #f0c5bd; border-radius:9px; background:#fff4f2; color:#a13427; font-size:12px; box-shadow:0 4px 12px #00000012; }
