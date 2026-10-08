@@ -1,7 +1,8 @@
-/Color.Background/ *Use white as the main Toolhub screen background.*
-/Color.Surface/ *Use white or a subtle near-white neutral for panels and controls.*
-/Color.Text/ *Use dark neutral text for primary content and muted gray for secondary content. Preserve readable contrast.*
-/Color.Border/ *Use subtle gray borders to separate controls and regions without making every section look like a heavy card.*
-/Color.Action/ *Use a dark neutral for the main action. Reserve stronger color for meaningful emphasis and status.*
-/Color.Status/ *Pair status color with a word or icon. Use green for active or ready, amber for warning, red for error, and gray for inactive.*
-/Color.Consistency/ *Reuse the same color roles across the screen; do not introduce a new palette for one component.*
+/Color.Background/ *Page and canvas background: #ffffff; workspace sidebar background: #f7f7f5.*
+/Color.Surface/ *Panel and dialog surface: #ffffff; subtle control surface: #fafaf9; neutral hover surface: #f1f0ed.*
+/Color.Text/ *Primary text: #37352f; strong text: #000000; secondary text: #787774; tertiary text: #91918b.*
+/Color.Border/ *Standard border: #e5e5e5; dialog field border: #deddd8; panel divider: #e8e7e3.*
+/Color.Action/ *Primary action background: #000000 and text: #ffffff; hover background: #262626.*
+/Color.Status/ *Active node text: #28794c and dot: #38935c; inactive node text: #787774 and dot: #a5a49f; destructive text: #b42318.*
+/Color.Link/ *Canvas connection stroke: #b7b5ae at 1.5px; selected connection: #37352f at 2.5px.*
+/Color.Consistency/ *Use these existing Toolhub color values for matching components; do not substitute a new palette.*

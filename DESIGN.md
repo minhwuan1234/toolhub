@@ -1,10 +1,11 @@
 # Toolhub UI design system
 
-Version 4.1 · 2026-10-08 · English interface
+Version 4.2 · 2026-10-08 · English interface
 
 /Design.Index/ *This file indexes the Toolhub UI screen context collection. Each file under contexts/ui-screen/ describes one basic part of a screen.*
 /Design.RuleSyntax/ *Write each normative design decision as a named slash block containing one concise requirement.*
 /Design.SourceOfTruth/ *Treat named slash blocks in the component context files as the source of truth when designing or reviewing a screen.*
+/Design.MeasuredValues/ *Use the numeric dimensions, breakpoints, and color values in the screen contexts. They are taken from the current Toolhub CSS; update the relevant context when the matching UI changes.*
 /Design.Unknowns/ *Do not invent behavior, content, or visual rules where the specification is silent. Surface the open question instead.*
 
 ## Basic screen contexts
@@ -34,4 +35,4 @@ Version 4.1 · 2026-10-08 · English interface
 ## Maintenance
 
 /Design.Maintenance/ *When a basic UI rule changes, update its screen context file and this index if the file map or usage rules change. Keep each context focused on one screen element.*
-/Design.Loading/ *Component contexts are attached to Context Builder by the user and selected through graph connections. The application does not automatically load every context file.*
+/Design.Loading/ *The UI/UX Graph presents each screen context as a Context Builder node. A node becomes available to an AI Agent only through a graph connection, and its tags are included in input only when explicitly referenced.*

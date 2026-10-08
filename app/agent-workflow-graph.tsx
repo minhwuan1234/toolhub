@@ -13,7 +13,7 @@ import { buildConnectedTagRegistry, buildTagRegistry, resolveConnectedInput, res
 import { agentLinksChangedEvent, agentOutputsChangedEvent, readAgentLinks, readAgentOutputs, receiveHandoffContent, routesForAgent, saveAgentOutput, syncDesignerHandoffDeliveries, type AgentLink, type AgentOutputSnapshot } from '@/lib/agent-handoff';
 import { defaultStructuredOutputSchema, validateStructuredOutput } from '@/lib/structured-output';
 import { sampleSingleScreenBrief } from '@/lib/sample-screen-brief';
-import { uiScreenContextCatalog, type UiScreenContext } from '@/lib/ui-screen-context-catalog';
+import { initialUiScreenContextHashes, uiScreenContextCatalog, uiScreenContextHash, type UiScreenContext } from '@/lib/ui-screen-context-catalog';
 
 type ContextFile = { id: string; name: string; content: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
@@ -116,6 +116,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [links, setLinks] = useState<GraphLink[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [screenContextsSeeded, setScreenContextsSeeded] = useState(false);
+  const [screenContextVersion, setScreenContextVersion] = useState(0);
   const [screenContextError, setScreenContextError] = useState('');
   const [screenContextRetry, setScreenContextRetry] = useState(0);
   const [selectedLink, setSelectedLink] = useState<string | null>(null);
@@ -167,12 +168,13 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       try {
         const saved = localStorage.getItem(storageKey) || localStorage.getItem(previousStorageKey);
         if (saved) {
-          const graph = JSON.parse(saved) as { nodes?: unknown; links?: unknown; pan?: { x?: unknown; y?: unknown }; screenContextsSeeded?: boolean };
+          const graph = JSON.parse(saved) as { nodes?: unknown; links?: unknown; pan?: { x?: unknown; y?: unknown }; screenContextsSeeded?: boolean; screenContextVersion?: number };
           const savedNodes = Array.isArray(graph.nodes) ? graph.nodes.filter(isGraphNode).slice(0, 100).map(normalizeNode) : [];
           const nodeIds = new Set(savedNodes.map(node => node.id));
           setNodes(savedNodes);
           setLinks(Array.isArray(graph.links) ? graph.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300).map(link => ({ ...link, command: 'input' as const })) : []);
           setScreenContextsSeeded(graph.screenContextsSeeded === true);
+          setScreenContextVersion(graph.screenContextVersion === 2 ? 2 : graph.screenContextsSeeded ? 1 : 0);
           if (Number.isFinite(graph.pan?.x) && Number.isFinite(graph.pan?.y)) setPan({ x: graph.pan!.x as number, y: graph.pan!.y as number });
         } else {
           const previous = JSON.parse(localStorage.getItem(legacyStorageKey) || '[]') as unknown;
@@ -188,12 +190,12 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   useEffect(() => {
     if (!loaded) return;
-    try { localStorage.setItem(storageKey, JSON.stringify({ nodes, links, pan, screenContextsSeeded })); syncDesignerHandoffDeliveries(); }
+    try { localStorage.setItem(storageKey, JSON.stringify({ nodes, links, pan, screenContextsSeeded, screenContextVersion })); syncDesignerHandoffDeliveries(); }
     catch { /* The graph remains usable for this session. */ }
-  }, [nodes, links, pan, loaded, screenContextsSeeded]);
+  }, [nodes, links, pan, loaded, screenContextsSeeded, screenContextVersion]);
 
   useEffect(() => {
-    if (!loaded || screenContextsSeeded) return;
+    if (!loaded || screenContextVersion >= 2) return;
     let cancelled = false;
     async function addScreenContexts() {
       try {
@@ -218,10 +220,20 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           handoffMode: 'receive', testDocument: '', useTestDocument: false,
           taskText: '', instructionPrompt: '', explicitInput: '', structuredOutput: '', lastOutput: '',
         }));
-        setNodes(current => [...current, ...additions.filter(node => !current.some(existing => existing.id === node.id))].slice(0, 100));
-        const canvas = canvasRef.current;
-        if (canvas) setPan({ x: canvas.clientWidth / 2 - (startX + 308), y: canvas.clientHeight / 2 - (startY + 249) });
+        setNodes(current => screenContextsSeeded
+          ? current.map(node => {
+            const context = contexts.find(item => node.id === `ui-screen-context:${item.id}`);
+            if (!context || uiScreenContextHash(node.contextText) !== initialUiScreenContextHashes[context.id]) return node;
+            const contextText = context.content.slice(0, maxContextCharacters);
+            return { ...node, contextText, contextTags: parseContextTags(contextText, node.contextFiles, node.contextTags) };
+          })
+          : [...current, ...additions.filter(node => !current.some(existing => existing.id === node.id))].slice(0, 100));
+        if (!screenContextsSeeded) {
+          const canvas = canvasRef.current;
+          if (canvas) setPan({ x: canvas.clientWidth / 2 - (startX + 308), y: canvas.clientHeight / 2 - (startY + 249) });
+        }
         setScreenContextsSeeded(true);
+        setScreenContextVersion(2);
         setScreenContextError('');
       } catch (error) {
         if (!cancelled) setScreenContextError(error instanceof Error ? error.message : 'Could not load UI screen contexts.');
@@ -229,7 +241,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     }
     void addScreenContexts();
     return () => { cancelled = true; };
-  }, [loaded, screenContextsSeeded, screenContextRetry]);
+  }, [loaded, screenContextsSeeded, screenContextVersion, screenContextRetry]);
 
   useEffect(() => {
     const sync = () => { setAgentLinks(readAgentLinks()); setAgentOutputs(readAgentOutputs()); };
