@@ -45,11 +45,20 @@ function renderContextSyntax(value: string) {
   for (const match of value.matchAll(pattern)) {
     const start = match.index + match[1].length;
     if (start > position) pieces.push(value.slice(position, start));
-    pieces.push(<span className="workflow-context-inline-tag" key={start}>{match[2]}</span>);
+    pieces.push(<span className="workflow-context-inline-tag" key={start}><span className="workflow-context-delimiter">/</span>{match[2].slice(1, match[2].endsWith('/') && match[2].length > 1 ? -1 : undefined)}{match[2].endsWith('/') && match[2].length > 1 && <span className="workflow-context-delimiter">/</span>}</span>);
     position = start + match[2].length;
   }
   pieces.push(value.slice(position));
   return pieces;
+}
+
+function tagNamesIn(text: string) {
+  return Array.from(text.matchAll(/(^|\s)\/([^/*\n]{1,40})\//g), match => match[2].trim()).filter(Boolean);
+}
+
+function openTagAt(text: string, caret: number) {
+  const match = text.slice(0, caret).match(/(^|\s)\/([^/*\n]{0,40})$/);
+  return match ? { start: caret - match[2].length - 1, query: match[2] } : null;
 }
 
 function isGraphNode(value: unknown): value is GraphNode {
@@ -101,9 +110,13 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [renamingNode, setRenamingNode] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
   const [readingFiles, setReadingFiles] = useState(false);
+  const [tagPicker, setTagPicker] = useState<{ start: number; query: string; x: number; y: number } | null>(null);
+  const [tagPickerIndex, setTagPickerIndex] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const contextFileRef = useRef<HTMLInputElement>(null);
+  const contextTextRef = useRef<HTMLTextAreaElement>(null);
+  const contextEditorRef = useRef<HTMLDivElement>(null);
   const contextMirrorRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const dragRef = useRef<{ id: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
@@ -175,6 +188,43 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   function updateContextText(nodeId: string, value: string) {
     setNodes(current => current.map(node => node.id === nodeId ? { ...node, contextText: value, contextTags: parseContextTags(value, node.contextFiles, node.contextTags) } : node));
+  }
+
+  const tagNames = nodes.flatMap(node => node.kind === 'context' ? tagNamesIn(node.contextText) : []).filter((name, index, all) => all.findIndex(item => item.toLowerCase() === name.toLowerCase()) === index);
+  const suggestedTags = tagPicker ? tagNames.filter(name => name.toLowerCase().includes(tagPicker.query.trim().toLowerCase())).slice(0, 8) : [];
+
+  function syncTagPicker(text: string, caret: number) {
+    const input = contextTextRef.current;
+    const editor = contextEditorRef.current;
+    const open = openTagAt(text, caret);
+    if (!open || !input || !editor || !tagNames.some(name => name.toLowerCase().includes(open.query.trim().toLowerCase()))) { setTagPicker(null); return; }
+    const measure = document.createElement('div');
+    const style = getComputedStyle(input);
+    Object.assign(measure.style, { position: 'absolute', top: '0', left: '0', visibility: 'hidden', width: `${input.clientWidth}px`, boxSizing: 'border-box', padding: style.padding, font: style.font, letterSpacing: style.letterSpacing, whiteSpace: 'pre-wrap', overflowWrap: 'break-word', pointerEvents: 'none' });
+    measure.textContent = text.slice(0, caret);
+    const marker = document.createElement('span');
+    marker.textContent = '\u200b';
+    measure.appendChild(marker);
+    editor.appendChild(measure);
+    const markerRect = marker.getBoundingClientRect();
+    const editorRect = editor.getBoundingClientRect();
+    measure.remove();
+    const x = Math.max(8, Math.min(markerRect.left - editorRect.left, editor.clientWidth - 228));
+    const below = markerRect.bottom - editorRect.top - input.scrollTop + 5;
+    const y = below + 220 < editor.clientHeight ? below : Math.max(8, markerRect.top - editorRect.top - input.scrollTop - 220);
+    setTagPicker({ ...open, x, y });
+    setTagPickerIndex(0);
+  }
+
+  function selectTagSuggestion(name: string, node: GraphNode) {
+    const picker = tagPicker;
+    const input = contextTextRef.current;
+    if (!picker || !input) return;
+    const end = input.selectionStart;
+    const value = `${node.contextText.slice(0, picker.start)}/${name}/ ${node.contextText.slice(end)}`;
+    updateContextText(node.id, value);
+    setTagPicker(null);
+    requestAnimationFrame(() => { input.focus(); input.setSelectionRange(picker.start + name.length + 3, picker.start + name.length + 3); });
   }
 
   async function attachContextFiles(nodeId: string, fileList: FileList | null) {
@@ -350,7 +400,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     </aside>
     </div>
     <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-rename-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" autoFocus maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
-    <Dialog open={Boolean(editingNode)} onOpenChange={open => { if (!open) setEditingNode(null); }}>
+    <Dialog open={Boolean(editingNode)} onOpenChange={open => { if (!open) { setEditingNode(null); setTagPicker(null); } }}>
       <DialogContent className="node-inspector node-inspector-setup node-inspector-agent workflow-context-dialog">
         <header className="inspector-heading"><span className="inspector-icon"><FileText size={21}/></span><DialogTitle>Context Builder</DialogTitle></header>
         <DialogDescription className="sr-only">Write context and tags in one field, and attach files for connected workflow nodes.</DialogDescription>
@@ -362,9 +412,16 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
             <div className="agent-card-field">
               <label htmlFor="workflow-context-text">Context</label>
               <div className="workflow-context-composer">
-                <div className="workflow-context-editor">
+                <div ref={contextEditorRef} className="workflow-context-editor">
                   <div ref={contextMirrorRef} className="workflow-context-syntax-mirror" aria-hidden="true">{renderContextSyntax(node.contextText)}</div>
-                  <textarea id="workflow-context-text" disabled={readingFiles} value={node.contextText} maxLength={Math.max(0, maxContextCharacters - usedCharacters)} onChange={event => updateContextText(node.id, event.target.value)} onScroll={event => { if (contextMirrorRef.current) contextMirrorRef.current.scrollTop = event.currentTarget.scrollTop; }} placeholder="Enter context or attach files..."/>
+                  <textarea ref={contextTextRef} id="workflow-context-text" disabled={readingFiles} value={node.contextText} maxLength={Math.max(0, maxContextCharacters - usedCharacters)} onChange={event => { updateContextText(node.id, event.target.value); syncTagPicker(event.target.value, event.target.selectionStart); }} onSelect={event => syncTagPicker(event.currentTarget.value, event.currentTarget.selectionStart)} onKeyDown={event => {
+                    if (!tagPicker || !suggestedTags.length) return;
+                    if (event.key === 'Escape') { event.preventDefault(); setTagPicker(null); }
+                    if (event.key === 'ArrowDown') { event.preventDefault(); setTagPickerIndex(index => (index + 1) % suggestedTags.length); }
+                    if (event.key === 'ArrowUp') { event.preventDefault(); setTagPickerIndex(index => (index + suggestedTags.length - 1) % suggestedTags.length); }
+                    if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); selectTagSuggestion(suggestedTags[tagPickerIndex] || suggestedTags[0], node); }
+                  }} onScroll={event => { if (contextMirrorRef.current) contextMirrorRef.current.scrollTop = event.currentTarget.scrollTop; setTagPicker(null); }} placeholder="Enter context or attach files..."/>
+                  {tagPicker && suggestedTags.length > 0 && <div className="workflow-context-suggestions" role="listbox" aria-label="Existing tags" style={{ left: tagPicker.x, top: tagPicker.y }}>{suggestedTags.map((name, index) => <button type="button" role="option" aria-selected={index === tagPickerIndex} key={name} onMouseDown={event => event.preventDefault()} onClick={() => selectTagSuggestion(name, node)}>{name}</button>)}</div>}
                 </div>
                 <div className="workflow-context-composer-footer"><div className="workflow-context-file-list">{node.contextFiles.map(file => <span key={file.id} className="workflow-context-file-chip" title={file.name}><FileText size={14}/>{file.name}<button type="button" aria-label={`Remove ${file.name}`} disabled={readingFiles} onClick={() => updateNode(node.id, { contextFiles: node.contextFiles.filter(item => item.id !== file.id), contextTags: node.contextTags.filter(tag => tag.fileId !== file.id) })}>×</button></span>)}</div><input ref={contextFileRef} id="workflow-context-file" type="file" accept={contextFileAccept} multiple hidden onChange={event => { void attachContextFiles(node.id, event.target.files); }}/><button type="button" className="workflow-context-attach" disabled={readingFiles} onClick={() => contextFileRef.current?.click()}><FileText size={16}/>{readingFiles ? 'Reading files…' : 'Attach files'}</button></div>
               </div>
