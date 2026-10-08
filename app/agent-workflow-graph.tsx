@@ -10,7 +10,8 @@ import { iconOptions, type NodeIcon } from './node-picker';
 import { contextFileAccept, maxContextCharacters, maxContextFileBytes, readContextFile } from '@/lib/context-file-reader';
 
 type ContextFile = { id: string; name: string; content: string };
-type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[] };
+type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
+type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[]; contextTags: ContextTag[] };
 type GraphLink = { id: string; source: string; target: string; command: 'input' };
 
 const storageKey = 'toolhub:designer-graph:v3';
@@ -28,7 +29,9 @@ function isGraphNode(value: unknown): value is GraphNode {
 function normalizeNode(node: GraphNode): GraphNode {
   const kind = node.kind === 'context' ? 'context' : 'workflow';
   const contextFiles = Array.isArray(node.contextFiles) ? node.contextFiles.filter((file): file is ContextFile => Boolean(file && typeof file === 'object' && typeof file.id === 'string' && typeof file.name === 'string' && typeof file.content === 'string')).slice(0, 20) : [];
-  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : 'workflow', active: node.active !== false, contextText: typeof node.contextText === 'string' ? node.contextText.slice(0, maxContextCharacters) : '', contextFiles };
+  const fileIds = new Set(contextFiles.map(file => file.id));
+  const contextTags = Array.isArray(node.contextTags) ? node.contextTags.filter((tag): tag is ContextTag => Boolean(tag && typeof tag === 'object' && typeof tag.id === 'string' && typeof tag.name === 'string' && (tag.kind === 'text' && typeof tag.text === 'string' || tag.kind === 'file' && typeof tag.fileId === 'string' && fileIds.has(tag.fileId)))).slice(0, 30).map(tag => ({ id: tag.id, name: tag.name.slice(0, 40), kind: tag.kind, text: tag.kind === 'text' ? tag.text.slice(0, maxContextCharacters) : '', fileId: tag.kind === 'file' ? tag.fileId : null })) : [];
+  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : 'workflow', active: node.active !== false, contextText: typeof node.contextText === 'string' ? node.contextText.slice(0, maxContextCharacters) : '', contextFiles, contextTags };
 }
 
 function isGraphLink(value: unknown): value is GraphLink {
@@ -60,9 +63,13 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [renamingNode, setRenamingNode] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
   const [readingFiles, setReadingFiles] = useState(false);
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const [tagSelection, setTagSelection] = useState<{ start: number; end: number } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const contextFileRef = useRef<HTMLInputElement>(null);
+  const contextTextRef = useRef<HTMLTextAreaElement>(null);
+  const tagMenuRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const dragRef = useRef<{ id: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const portDragRef = useRef<{ source: string; pointerId: number } | null>(null);
@@ -91,6 +98,10 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     catch { /* The graph remains usable for this session. */ }
   }, [nodes, links, pan, loaded]);
 
+  useEffect(() => {
+    if (tagMenuOpen) requestAnimationFrame(() => tagMenuRef.current?.querySelector('button')?.focus());
+  }, [tagMenuOpen]);
+
   function addNode(kind: GraphNode['kind'] = 'workflow', position?: { x: number; y: number }) {
     if (nodes.length >= 100) return;
     const id = crypto.randomUUID();
@@ -101,7 +112,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       const row = branchIndex % 4;
       if (current.length >= 100) return current;
       return [...current, {
-        id, number, kind, name: kind === 'context' ? `Context ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : 'workflow', active: true, contextText: '', contextFiles: [],
+        id, number, kind, name: kind === 'context' ? `Context ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : 'workflow', active: true, contextText: '', contextFiles: [], contextTags: [],
         x: Math.max(8, position?.x ?? (current.length === 0 ? 105 : 310 + column * 190) - pan.x),
         y: Math.max(8, position?.y ?? (current.length === 0 ? 206 : 55 + row * 112 + (column % 2) * 20) - pan.y),
       }];
@@ -131,6 +142,37 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     setNodes(current => current.map(node => node.id === id ? { ...node, ...patch } : node));
   }
 
+  function addContextTag(nodeId: string, fileId: string | null = null) {
+    setNodes(current => current.map(node => {
+      if (node.id !== nodeId || node.contextTags.length >= 30) return node;
+      const file = fileId ? node.contextFiles.find(item => item.id === fileId) : null;
+      if (fileId && !file) return node;
+      const selection = !file ? tagSelection : null;
+      const text = selection ? node.contextText.slice(selection.start, selection.end) : '';
+      const name = file ? file.name.replace(/\.[^.]+$/, '').slice(0, 40) : `Tag ${node.contextTags.length + 1}`;
+      const tag: ContextTag = { id: crypto.randomUUID(), name, kind: file ? 'file' : 'text', text, fileId: file?.id || null };
+      return { ...node, contextText: selection ? node.contextText.slice(0, selection.start) + node.contextText.slice(selection.end) : node.contextText, contextTags: [...node.contextTags, tag] };
+    }));
+    setTagMenuOpen(false);
+    setTagSelection(null);
+  }
+
+  function updateContextTag(nodeId: string, tagId: string, patch: Partial<ContextTag>) {
+    setNodes(current => current.map(node => node.id === nodeId ? { ...node, contextTags: node.contextTags.map(tag => tag.id === tagId ? { ...tag, ...patch } : tag) } : node));
+  }
+
+  function removeContextTag(nodeId: string, tagId: string) {
+    setNodes(current => current.map(node => {
+      if (node.id !== nodeId) return node;
+      const tag = node.contextTags.find(item => item.id === tagId);
+      if (!tag) return node;
+      const remaining = maxContextCharacters - node.contextText.length - node.contextFiles.reduce((total, file) => total + file.content.length, 0) - node.contextTags.reduce((total, item) => total + (item.kind === 'text' ? item.text.length : 0), 0);
+      const separator = node.contextText && tag.text ? '\n\n'.slice(0, Math.max(0, remaining)) : '';
+      const restoredText = tag.kind === 'text' && tag.text ? `${node.contextText}${separator}${tag.text}` : node.contextText;
+      return { ...node, contextText: restoredText, contextTags: node.contextTags.filter(item => item.id !== tagId) };
+    }));
+  }
+
   async function attachContextFiles(nodeId: string, fileList: FileList | null) {
     const files = Array.from(fileList || []);
     if (!files.length) return;
@@ -148,7 +190,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
         additions.push({ id: crypto.randomUUID(), name: file.name, content: content.trim() });
       }
       const addedCharacters = additions.reduce((total, file) => total + file.content.length, 0);
-      const currentCharacters = node.contextText.length + node.contextFiles.reduce((total, file) => total + file.content.length, 0);
+      const currentCharacters = node.contextText.length + node.contextFiles.reduce((total, file) => total + file.content.length, 0) + node.contextTags.reduce((total, tag) => total + (tag.kind === 'text' ? tag.text.length : 0), 0);
       if (currentCharacters + addedCharacters > maxContextCharacters) throw new Error('Combined context is over the 200,000 character limit.');
       updateNode(nodeId, { contextFiles: [...node.contextFiles, ...additions] });
     } catch (cause) {
@@ -303,6 +345,46 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     </aside>
     </div>
     <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-rename-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" autoFocus maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
-    <Dialog open={Boolean(editingNode)} onOpenChange={open => { if (!open) setEditingNode(null); }}><DialogContent className="node-inspector node-inspector-setup node-inspector-agent workflow-context-dialog"><header className="inspector-heading"><span className="inspector-icon"><FileText size={21}/></span><DialogTitle>Context Builder</DialogTitle></header><DialogDescription className="sr-only">Provide context text and files for connected workflow nodes.</DialogDescription>{(() => { const node = nodes.find(item => item.id === editingNode); return node && <div className="agent-card-form workflow-context-form"><label className="agent-card-field"><span>Context</span><div className="workflow-context-composer"><textarea id="workflow-context-text" disabled={readingFiles} value={node.contextText} maxLength={Math.max(0, maxContextCharacters - node.contextFiles.reduce((total, file) => total + file.content.length, 0))} onChange={event => updateNode(node.id, { contextText: event.target.value })} placeholder="Enter context or attach files..."/><div className="workflow-context-composer-footer"><div className="workflow-context-file-list">{node.contextFiles.map(file => <span key={file.id} className="workflow-context-file-chip" title={file.name}><FileText size={14}/>{file.name}<button type="button" aria-label={`Remove ${file.name}`} disabled={readingFiles} onClick={() => updateNode(node.id, { contextFiles: node.contextFiles.filter(item => item.id !== file.id) })}>×</button></span>)}</div><input ref={contextFileRef} id="workflow-context-file" type="file" accept={contextFileAccept} multiple hidden onChange={event => { void attachContextFiles(node.id, event.target.files); }}/><button type="button" className="workflow-context-attach" disabled={readingFiles} onClick={() => contextFileRef.current?.click()}><FileText size={16}/>{readingFiles ? 'Reading files…' : 'Attach files'}</button></div></div></label>{fileError && <small role="alert" className="workflow-context-error">{fileError}</small>}</div>; })()}</DialogContent></Dialog>
+    <Dialog open={Boolean(editingNode)} onOpenChange={open => { if (!open) { setEditingNode(null); setTagMenuOpen(false); } }}>
+      <DialogContent className="node-inspector node-inspector-setup node-inspector-agent workflow-context-dialog">
+        <header className="inspector-heading"><span className="inspector-icon"><FileText size={21}/></span><DialogTitle>Context Builder</DialogTitle></header>
+        <DialogDescription className="sr-only">Provide context text, tagged sections, and files for connected workflow nodes.</DialogDescription>
+        {(() => {
+          const node = nodes.find(item => item.id === editingNode);
+          if (!node) return null;
+          const usedCharacters = node.contextFiles.reduce((total, file) => total + file.content.length, 0) + node.contextTags.reduce((total, tag) => total + (tag.kind === 'text' ? tag.text.length : 0), 0);
+          return <div className="agent-card-form workflow-context-form">
+            <div className="agent-card-field">
+              <label htmlFor="workflow-context-text">Context</label>
+              <div className="workflow-context-composer">
+                <textarea ref={contextTextRef} id="workflow-context-text" disabled={readingFiles} value={node.contextText} maxLength={Math.max(0, maxContextCharacters - usedCharacters)} onChange={event => updateNode(node.id, { contextText: event.target.value })} onKeyDown={event => {
+                  if (event.key === 'Escape' && tagMenuOpen) { event.preventDefault(); setTagMenuOpen(false); return; }
+                  if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return;
+                  const start = event.currentTarget.selectionStart;
+                  const end = event.currentTarget.selectionEnd;
+                  if (start === end && start > 0 && !/\s/.test(node.contextText[start - 1])) return;
+                  event.preventDefault();
+                  setTagSelection(start !== end ? { start, end } : null);
+                  setTagMenuOpen(true);
+                }} placeholder="Enter context or attach files. Press / to create a tag..."/>
+                {node.contextTags.length > 0 && <div className="workflow-context-tag-list">{node.contextTags.map(tag => {
+                  const file = tag.fileId ? node.contextFiles.find(item => item.id === tag.fileId) : null;
+                  return <div key={tag.id} className="workflow-context-tag-row">
+                    <div className="workflow-context-tag-heading"><span className="workflow-context-tag-pill"><input aria-label="Tag name" value={tag.name} maxLength={40} size={Math.max(5, Math.min(40, tag.name.length || 5))} onChange={event => updateContextTag(node.id, tag.id, { name: event.target.value })} onBlur={() => { if (!tag.name.trim()) updateContextTag(node.id, tag.id, { name: 'Untitled tag' }); }}/></span><button type="button" className="workflow-context-tag-remove" onClick={() => removeContextTag(node.id, tag.id)}>Remove</button></div>
+                    {tag.kind === 'text' ? <textarea aria-label={`Content for ${tag.name}`} value={tag.text} maxLength={Math.max(0, maxContextCharacters - node.contextText.length - node.contextFiles.reduce((total, item) => total + item.content.length, 0) - node.contextTags.reduce((total, item) => total + (item.kind === 'text' && item.id !== tag.id ? item.text.length : 0), 0))} onChange={event => updateContextTag(node.id, tag.id, { text: event.target.value })} placeholder="Write the context for this tag..."/> : <span className="workflow-context-tag-file">{file?.name}</span>}
+                  </div>;
+                })}</div>}
+                {tagMenuOpen && <div ref={tagMenuRef} className="workflow-context-tag-menu" role="menu" aria-label="Create context tag" onKeyDown={event => {
+                  if (event.key === 'Escape') { event.preventDefault(); setTagMenuOpen(false); contextTextRef.current?.focus(); }
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); const items = Array.from(event.currentTarget.querySelectorAll('button')); const index = items.indexOf(document.activeElement as HTMLButtonElement); items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus(); }
+                }}><button type="button" role="menuitem" disabled={node.contextTags.length >= 30} onClick={() => addContextTag(node.id)}>{tagSelection ? 'Tag selected text' : 'New text tag'}</button>{node.contextFiles.filter(file => !node.contextTags.some(tag => tag.fileId === file.id)).map(file => <button type="button" role="menuitem" key={file.id} disabled={node.contextTags.length >= 30} onClick={() => addContextTag(node.id, file.id)}>Tag file: {file.name}</button>)}</div>}
+                <div className="workflow-context-composer-footer"><div className="workflow-context-file-list">{node.contextFiles.map(file => <span key={file.id} className="workflow-context-file-chip" title={file.name}><FileText size={14}/>{file.name}<button type="button" aria-label={`Remove ${file.name}`} disabled={readingFiles} onClick={() => updateNode(node.id, { contextFiles: node.contextFiles.filter(item => item.id !== file.id), contextTags: node.contextTags.filter(tag => tag.fileId !== file.id) })}>×</button></span>)}</div><input ref={contextFileRef} id="workflow-context-file" type="file" accept={contextFileAccept} multiple hidden onChange={event => { void attachContextFiles(node.id, event.target.files); }}/><button type="button" className="workflow-context-attach" disabled={readingFiles} onClick={() => contextFileRef.current?.click()}><FileText size={16}/>{readingFiles ? 'Reading files…' : 'Attach files'}</button></div>
+              </div>
+            </div>
+            {fileError && <small role="alert" className="workflow-context-error">{fileError}</small>}
+          </div>;
+        })()}
+      </DialogContent>
+    </Dialog>
   </section>;
 }
