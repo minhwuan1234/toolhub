@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { deliveriesForDesigner, handoffContextForAgent, routesForAgent, type AgentLink, type AgentOutputSnapshot } from '../lib/agent-handoff';
+import { deliveriesForDesigner, handoffContextForAgent, receiveHandoffContent, routesForAgent, type AgentLink, type AgentOutputSnapshot } from '../lib/agent-handoff';
 
 const links: AgentLink[] = [
   { source: 'ba', target: 'designer' },
@@ -11,6 +11,12 @@ const links: AgentLink[] = [
 void test('handoff routes respect Toolhub edge direction and deduplicate agents', () => {
   assert.deepEqual(routesForAgent(links, 'designer'), { incoming: ['ba'], outgoing: ['developer'] });
   assert.deepEqual(routesForAgent(links, 'ba'), { incoming: [], outgoing: ['designer'] });
+});
+
+void test('receive handoff uses the sample brief only when no live output is available', () => {
+  assert.equal(receiveHandoffContent('Live BA brief', 'Sample screen brief', true), 'Live BA brief');
+  assert.equal(receiveHandoffContent('', 'Sample screen brief', true), 'Sample screen brief');
+  assert.equal(receiveHandoffContent('', 'Sample screen brief', false), '');
 });
 
 void test('send mode delivers the current UI/UX result only to connected destinations', () => {

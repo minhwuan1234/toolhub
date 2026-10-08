@@ -3,18 +3,20 @@
 /* oxlint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex, jsx-a11y/prefer-tag-over-role */
 
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { ArrowRightLeft, BookOpen, Bot, Check, CircleCheck, FileText, Pencil, Power, Shapes, Ticket, Trash2, Workflow, Wrench } from 'lucide-react';
+import { ArrowRightLeft, BookOpen, Bot, Check, ChevronDown, CircleCheck, FileText, Pencil, Power, Shapes, Ticket, Trash2, Workflow, Wrench } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { iconOptions, type NodeIcon } from './node-picker';
 import { contextFileAccept, maxContextCharacters, maxContextFileBytes, readContextFile } from '@/lib/context-file-reader';
 import { buildConnectedTagRegistry, buildTagRegistry, resolveConnectedInput, resolveGraphAgentInput, resolveTag } from '@/lib/context-tags';
-import { agentLinksChangedEvent, agentOutputsChangedEvent, readAgentLinks, readAgentOutputs, routesForAgent, saveAgentOutput, syncDesignerHandoffDeliveries, type AgentLink, type AgentOutputSnapshot } from '@/lib/agent-handoff';
+import { agentLinksChangedEvent, agentOutputsChangedEvent, readAgentLinks, readAgentOutputs, receiveHandoffContent, routesForAgent, saveAgentOutput, syncDesignerHandoffDeliveries, type AgentLink, type AgentOutputSnapshot } from '@/lib/agent-handoff';
 import { defaultStructuredOutputSchema, validateStructuredOutput } from '@/lib/structured-output';
+import { sampleSingleScreenBrief } from '@/lib/sample-screen-brief';
 
 type ContextFile = { id: string; name: string; content: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
-type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context' | 'agent' | 'tool-calling' | 'human-approval' | 'skill' | 'agent-handoff'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[]; contextTags: ContextTag[]; handoffMode: 'receive' | 'send'; taskText: string; instructionPrompt: string; explicitInput: string; structuredOutput: string; lastOutput: string };
+type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context' | 'agent' | 'tool-calling' | 'human-approval' | 'skill' | 'agent-handoff'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[]; contextTags: ContextTag[]; handoffMode: 'receive' | 'send'; testDocument: string; useTestDocument: boolean; taskText: string; instructionPrompt: string; explicitInput: string; structuredOutput: string; lastOutput: string };
 type GraphLink = { id: string; source: string; target: string; command: 'input' };
 
 const storageKey = 'toolhub:designer-graph:v3';
@@ -90,7 +92,7 @@ function normalizeNode(node: GraphNode): GraphNode {
   }
   contextText = contextText.slice(0, maxContextCharacters);
   const contextTags = parseContextTags(contextText, contextFiles, previousTags);
-  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : kind === 'agent' ? `AI Agent ${node.number}` : kind === 'tool-calling' ? `Tool Calling ${node.number}` : kind === 'human-approval' ? `Human Approval ${node.number}` : kind === 'skill' ? `Skill ${node.number}` : kind === 'agent-handoff' ? `Agent Handoff ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'agent-handoff' && !node.handoffMode ? true : node.active !== false, contextText, contextFiles, contextTags, handoffMode: node.handoffMode === 'send' ? 'send' : 'receive', taskText: typeof node.taskText === 'string' ? node.taskText.slice(0, 4000) : '', instructionPrompt: typeof node.instructionPrompt === 'string' ? node.instructionPrompt.slice(0, 4000) : '', explicitInput: typeof node.explicitInput === 'string' ? node.explicitInput.slice(0, 4000) : '', structuredOutput: typeof node.structuredOutput === 'string' ? node.structuredOutput.slice(0, 16000) : '', lastOutput: typeof node.lastOutput === 'string' ? node.lastOutput.slice(0, 30000) : '' };
+  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : kind === 'agent' ? `AI Agent ${node.number}` : kind === 'tool-calling' ? `Tool Calling ${node.number}` : kind === 'human-approval' ? `Human Approval ${node.number}` : kind === 'skill' ? `Skill ${node.number}` : kind === 'agent-handoff' ? `Agent Handoff ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'agent-handoff' && !node.handoffMode ? true : node.active !== false, contextText, contextFiles, contextTags, handoffMode: node.handoffMode === 'send' ? 'send' : 'receive', testDocument: typeof node.testDocument === 'string' ? node.testDocument.slice(0, 6000) : kind === 'agent-handoff' ? sampleSingleScreenBrief : '', useTestDocument: typeof node.useTestDocument === 'boolean' ? node.useTestDocument : kind === 'agent-handoff', taskText: typeof node.taskText === 'string' ? node.taskText.slice(0, 4000) : '', instructionPrompt: typeof node.instructionPrompt === 'string' ? node.instructionPrompt.slice(0, 4000) : '', explicitInput: typeof node.explicitInput === 'string' ? node.explicitInput.slice(0, 4000) : '', structuredOutput: typeof node.structuredOutput === 'string' ? node.structuredOutput.slice(0, 16000) : '', lastOutput: typeof node.lastOutput === 'string' ? node.lastOutput.slice(0, 30000) : '' };
 }
 
 function isGraphLink(value: unknown): value is GraphLink {
@@ -197,7 +199,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       const row = branchIndex % 4;
       if (current.length >= 100) return current;
       return [...current, {
-        id, number, kind, name: kind === 'context' ? `Context ${number}` : kind === 'agent' ? `AI Agent ${number}` : kind === 'tool-calling' ? `Tool Calling ${number}` : kind === 'human-approval' ? `Human Approval ${number}` : kind === 'skill' ? `Skill ${number}` : kind === 'agent-handoff' ? `Agent Handoff ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'workflow' || kind === 'context' || kind === 'agent-handoff', contextText: '', contextFiles: [], contextTags: [], handoffMode: 'receive', taskText: '', instructionPrompt: '', explicitInput: '', structuredOutput: '', lastOutput: '',
+        id, number, kind, name: kind === 'context' ? `Context ${number}` : kind === 'agent' ? `AI Agent ${number}` : kind === 'tool-calling' ? `Tool Calling ${number}` : kind === 'human-approval' ? `Human Approval ${number}` : kind === 'skill' ? `Skill ${number}` : kind === 'agent-handoff' ? `Agent Handoff ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'workflow' || kind === 'context' || kind === 'agent-handoff', contextText: '', contextFiles: [], contextTags: [], handoffMode: 'receive', testDocument: kind === 'agent-handoff' ? sampleSingleScreenBrief : '', useTestDocument: kind === 'agent-handoff', taskText: '', instructionPrompt: '', explicitInput: '', structuredOutput: '', lastOutput: '',
         x: Math.max(8, position?.x ?? (current.length === 0 ? 105 : 310 + column * 190) - pan.x),
         y: Math.max(8, position?.y ?? (current.length === 0 ? 206 : 55 + row * 112 + (column % 2) * 20) - pan.y),
       }];
@@ -245,7 +247,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     if (!format.ok) { setOutputError(format.error); return; }
     const incomingAgents = routesForAgent(agentLinks, 'designer').incoming;
     const received = agentOutputs.filter(output => incomingAgents.includes(output.agentId)).map(output => `## ${output.agentId} handoff\n${output.content}`).join('\n\n');
-    const handoffData = Object.fromEntries(nodes.filter(item => item.kind === 'agent-handoff' && item.handoffMode === 'receive').map(item => [item.id, received]));
+    const handoffData = Object.fromEntries(nodes.filter(item => item.kind === 'agent-handoff' && item.handoffMode === 'receive').map(item => [item.id, receiveHandoffContent(received, item.testDocument, item.useTestDocument)]));
     const input = resolveGraphAgentInput(node.id, node.explicitInput, nodes, links, handoffData);
     if (!input.ok) { setOutputError(input.error); return; }
     setRunningAgent(true);
@@ -599,22 +601,26 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(editingHandoff)} onOpenChange={open => { if (!open) setEditingHandoff(null); }}>
-      <DialogContent className="workflow-handoff-dialog">
-        <DialogTitle>Agent Handoff</DialogTitle>
+      <DialogContent className="node-inspector node-inspector-setup node-inspector-agent workflow-handoff-dialog">
+        <header className="inspector-heading"><span className="inspector-icon"><ArrowRightLeft size={21}/></span><DialogTitle>Agent Handoff</DialogTitle></header>
         <DialogDescription className="sr-only">Choose whether this node receives or sends agent data.</DialogDescription>
         {(() => {
           const node = nodes.find(item => item.id === editingHandoff);
           if (!node) return null;
           const peers = node.handoffMode === 'receive' ? handoffRoutes.incoming : handoffRoutes.outgoing;
           const visibleOutputs = node.handoffMode === 'receive' ? agentOutputs.filter(output => peers.includes(output.agentId)) : agentOutputs.filter(output => output.agentId === 'designer');
-          return <div className="workflow-handoff-form">
-            <label htmlFor="workflow-handoff-mode">Mode</label>
-            <select id="workflow-handoff-mode" value={node.handoffMode} onChange={event => updateNode(node.id, { handoffMode: event.target.value === 'send' ? 'send' : 'receive', active: true })}>
-              <option value="receive">Receive data</option>
-              <option value="send">Send handoff</option>
-            </select>
-            <div className="workflow-handoff-route"><strong>{node.handoffMode === 'receive' ? 'Sources from Toolhub' : 'Destinations from Toolhub'}</strong><span>{peers.length ? peers.map(agentLabel).join(', ') : 'No connected agent'}</span></div>
-            <div className="workflow-handoff-data"><strong>{node.handoffMode === 'receive' ? 'Received data' : 'Available UI/UX data'}</strong>{visibleOutputs.length ? visibleOutputs.map(output => <article key={output.agentId}><span>{agentLabel(output.agentId)}</span><div>{output.content}</div></article>) : <span className="workflow-handoff-empty">No agent output yet</span>}</div>
+          return <div className="agent-card-form workflow-handoff-form">
+            <div className="agent-card-field"><span id="workflow-handoff-mode-label">Mode</span>
+              <DropdownMenu><DropdownMenuTrigger className="workflow-handoff-select" aria-labelledby="workflow-handoff-mode-label"><span>{node.handoffMode === 'receive' ? 'Receive data' : 'Send handoff'}</span><ChevronDown size={16}/></DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="workflow-handoff-mode-menu">
+                  <DropdownMenuItem onClick={() => updateNode(node.id, { handoffMode: 'receive', active: true })}><span>Receive data</span>{node.handoffMode === 'receive' && <Check size={15}/>}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => updateNode(node.id, { handoffMode: 'send', active: true })}><span>Send handoff</span>{node.handoffMode === 'send' && <Check size={15}/>}</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            <div className="agent-card-field"><span>{node.handoffMode === 'receive' ? 'Sources from Toolhub' : 'Destinations from Toolhub'}</span><div className="workflow-handoff-route">{peers.length ? peers.map(agentLabel).join(', ') : 'No connected agent'}</div></div>
+            <div className="agent-card-field"><span>{node.handoffMode === 'receive' ? 'Received data' : 'Available UI/UX data'}</span><div className="workflow-handoff-data">{visibleOutputs.length ? visibleOutputs.map(output => <article key={output.agentId}><strong>{agentLabel(output.agentId)}</strong><div>{output.content}</div></article>) : <span className="workflow-handoff-empty">No live agent output yet</span>}</div></div>
+            {node.handoffMode === 'receive' && <div className="agent-card-field"><label htmlFor="workflow-handoff-test-document">Test document</label><textarea id="workflow-handoff-test-document" className="workflow-handoff-test-document" value={node.testDocument} maxLength={6000} onChange={event => updateNode(node.id, { testDocument: event.target.value })}/><label className="workflow-handoff-toggle"><input type="checkbox" checked={node.useTestDocument} onChange={event => updateNode(node.id, { useTestDocument: event.target.checked })}/><span>Use when no live agent output</span></label></div>}
           </div>;
         })()}
       </DialogContent>

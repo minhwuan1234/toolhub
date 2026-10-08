@@ -17,6 +17,10 @@ export function routesForAgent(links: AgentLink[], agentId: string) {
   };
 }
 
+export function receiveHandoffContent(liveOutput: string, testDocument: string, useTestDocument: boolean): string {
+  return liveOutput || (useTestDocument ? testDocument : '');
+}
+
 export function readAgentLinks(): AgentLink[] {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(agentLinksStorageKey) || '[]');
