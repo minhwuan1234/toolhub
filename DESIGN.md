@@ -1,170 +1,37 @@
-# Toolhub — Agent workspace design
+# Toolhub UI design system
 
-Version 3.35 · 2026-10-08 · English interface
+Version 4.0 · 2026-10-08 · English interface
 
-## Current product direction
+/Design.Index/ *This file indexes the Toolhub UI/UX context collection. Each component specification is an independent Markdown context file under contexts/ui-design/.*
+/Design.RuleSyntax/ *Write each normative design decision as a named slash block containing one concise requirement.*
+/Design.SourceOfTruth/ *Treat named slash blocks in the component context files as the source of truth when designing or reviewing a screen.*
+/Design.Unknowns/ *Do not invent behavior, content, or visual rules where the specification is silent. Surface the open question instead.*
 
-Toolhub is a canvas workspace for three AI agents: Business Analyst, UI/UX Designer, and Developer. The canvas and chat are the primary interface. Keep every visible label, placeholder, menu item, status, and accessible name in English. The seven former department tabs are hidden from the UI; the underlying roles remain available.
+## Component specifications
 
-## Canvas
+- [Product direction](contexts/ui-design/product-direction.md)
+- [Color](contexts/ui-design/color.md)
+- [Layout and spacing](contexts/ui-design/layout.md)
+- [Buttons and controls](contexts/ui-design/buttons-controls.md)
+- [Main canvas and graph](contexts/ui-design/canvas-graph.md)
+- [Agent cards](contexts/ui-design/agent-card.md)
+- [AI Agent node](contexts/ui-design/ai-agent-node.md)
+- [Context Builder](contexts/ui-design/context-builder.md)
+- [Agent Handoff](contexts/ui-design/agent-handoff.md)
+- [Chat composer and agent menu](contexts/ui-design/chat-composer.md)
+- [API spend indicator](contexts/ui-design/api-spend-indicator.md)
+- [Admin account selectors](contexts/ui-design/admin-account-selectors.md)
+- [Accessibility and responsive behavior](contexts/ui-design/accessibility-responsive.md)
 
-- Place Add node, Add note, Fit view, Zoom in, and Zoom out in one vertical toolbar at the canvas's upper right. Separate creation from viewport controls with a subtle divider. Show the current zoom percentage below the controls.
-- New AI Agent nodes immediately open their Agent card and remain in Setup needed until saved.
-- Selecting an AI Agent node opens its Agent card. The card contains name, role, mission, responsibilities, inputs, outputs, collaboration, and an option to use the current Toolhub DESIGN.md guidance. Saving the card activates a custom agent, persists it in the shared workspace, and makes it discoverable by MCP and the chat target menu. Only admins can edit cards; signed-in members can read them.
-- Keep the Agent card header compact: show the current status tag beside the title, with a glowing green indicator when the agent is active. Do not show explanatory intro copy above the form fields.
-- Give the Agent card dialog a width of 60% of the viewport on desktop and about 80% of the viewport height. On narrow screens, let it fill the available width with a small margin. Scroll the card form within the dialog. Use taller single-line fields and text areas that show several lines of agent instructions without immediate scrolling.
-- The default BA, UI/UX, and Developer nodes use editable cards that reflect their distinct roles. New custom agents start in Setup needed until their card is saved. Custom agent nodes remain after reload; their canvas positions are stored with the cards.
-- Selecting the UI/UX Agent enters a dedicated Graph screen within the Toolhub workspace, with the breadcrumb `Workspace > Toolhub > UI/UX Graph`; do not place the graph in the Agent card popup. The graph fills the workspace content area beneath the shared top bar, without a second page title, back button, inset card, or surrounding padding. Put Agent card on the same row as `UI/UX workflow` and open the card from there. Keep the graph toolbar free of node and link counts or other status text. Use the main canvas's flat 2D style: a white dotted field that covers the entire visible panel and remains continuous while panning, 64px rounded square nodes with a centered icon and short label below, the same node border, hover, focus, and grab states, plus input/output ports and curved animated edges. Show the edge command as a compact one-word label interrupting the line. Right-clicking an edge opens the node context menu style to choose its command; `Input` is the first command. The right sidebar matches the main Add node picker and offers Workflow node, Context Builder, AI Agent, Tool Calling, Human Approval, Skill, and Agent Handoff. Tool Calling, Human Approval, and Skill graph nodes start inactive and have no configuration or execution behavior yet. Each new AI Agent graph node starts inactive and opens a setup dialog using the same header, 60vw width, 80vh height, padding, fields, and scrolling style as the existing Agent card and Context Builder. The dialog has Instruction prompt, Explicit input, and Structured output JSON fields, saved independently for that node. Instruction prompt augments the server-side agent instructions; Explicit input is the task sent to the model and may call slash tags from directly connected active Context Builders. Typing slash offers only those connected tags and shows selected tags with the existing gray treatment. Structured output stores a strict object JSON Schema; the default UI/UX schema requires html, css, and js string fields. Save validates the schema and activates the node. Double-click or use the node context menu to edit it. Run explicitly invokes the UI/UX agent through the server-side OpenAI Responses API using the shared server key and $5 spend budget; the key is never sent to the browser. Run uses Explicit input and any task from directly linked active Workflow nodes, expands only the named tags each node is permitted to access, and includes available data from a linked Receive handoff. It does not inject other context sections or files. The model response must match the saved JSON Schema, and its latest JSON output is stored with the node and made available to downstream Toolhub handoffs. The JSON fields are output data, not downloadable files yet. No model call happens when a link or schema changes. New Agent Handoff nodes start in Receive data mode. Double-click one or choose Configure handoff from its context menu to select Receive data or Send handoff. The dialog shows connected sources or destinations from the directed agent links on the main Toolhub canvas and previews the latest available output. Receive data reads the latest output from connected incoming agents; Send handoff saves the latest UI/UX output for connected outgoing agents in a browser-local handoff mailbox. Changing or removing a main Toolhub connection updates the routes and mailbox. Neither mode automatically calls a model or starts the destination agent. When an agent is later run through Toolhub chat, the latest available data is included only for that routed agent: incoming output for UI/UX when an active Receive node exists, and a UI/UX delivery for each connected destination when an active Send node exists. Main canvas links, latest agent output snapshots, and handoff records are stored in this browser; cross-device or server persistence is not yet provided. The Context Builder uses the Agent card popup's width, height, header, and padding. It has one `Context` field with a text area and attached file chips in the same bordered control. Keep the label directly above the bordered composer with a 6px gap; let the composer fill the remaining height without stretching the label row. It reads TXT, Markdown, CSV, TSV, JSON, HTML, XML, YAML, RTF, PDF, DOCX, XLSX, and PPTX files locally in the browser, extracts their text, and keeps that text with the node. Scanned PDFs without an embedded text layer are not OCR processed. Limit each file to 20 MB, each context to 20 files, and combined extracted text to 200,000 characters. Connecting a Context Builder to a workflow node grants that node access to the source's tagged text and files; the edge never injects the full source automatically. Double-click a workflow node or choose Edit task to enter its task and select tags from only its directly connected, active Context Builders. Typing `/` in the task opens only the connected tag names; selecting a gray tag chip inserts the same reference. Inline tag names use the existing subtle gray treatment and hide slash delimiters visually. Inserted slash references identify the exact content to use. Unreferenced sections and files remain excluded, and a reference to a disconnected, inactive, missing, or conflicting tag reports an error. The task and selected references are saved with the graph; workflow model execution is still being developed. Every graph node has the same right-click actions: Rename, Change icon, Set active/inactive, a disabled Write ticket placeholder, and Delete node; Context Builder also offers Edit context. Click or drag any picker tile to add it. With the graph focused, `+`, `=`, or `N` adds a Workflow node at the visible center, and `0` resets pan. With a node or link focused, Backspace/Delete removes it. Drag an output port to another node's input to connect; keyboard users can activate output then input ports. Drag existing nodes to move them, use arrow keys to nudge them, and drag empty space to pan. Store node type, name, icon, active state, context text, attached file text and names, IDs, positions, links, and pan offset in this browser. Tool Calling, Human Approval, Skill, and other automatic graph execution behavior comes later. On narrow screens, place the compact node picker below the field.
-- In each Context Builder, users write plain context and tagged context in the same field. A first `/` starts a tag name and immediately gives it a subtle gray background; a second `/` ends the name. Hide the slash delimiters visually so the gray tag shows only its name. A first `*` starts the tag content and a second `*` ends it. Pressing `/` opens a compact picker of existing tag names from Context Builders in this graph, filtered as the user types; selecting one inserts a reference by name, while typing a new name and closing it with `/` saves that name for later reuse. The picker supports arrow keys, Enter, Tab, Escape, and pointer selection. Clicking a tag reference opens a compact, scrollable preview of its saved content; the preview and the shared tag resolver read the current definition rather than copying content into the editor. A reference without saved content or a name with conflicting definitions reports an explicit error. The resolver can expand slash references to their current text or extracted file content when graph execution is added; it does not invoke a model. Completed `/name/ *content*` pairs are parsed into graph tags with stable IDs. If the content exactly matches an attached file name, the tag references that file's extracted text through its file ID. Keep the editor free of syntax instructions and separate tag fields. Existing separately stored tags migrate into inline syntax when the graph loads. These tags let a connected Workflow task reference only a selected section or file. The current task editor validates and resolves those references locally; it does not call a model on its own.
-- The Agent Handoff editor uses the same 60vw by 80vh inspector dialog, compact header, form padding, and tall fields as Agent card and Context Builder. Choose Receive data or Send handoff with a styled menu rather than a native select. Receive mode includes an editable test document: a BA brief for exactly one Agent Run History screen, also kept in `docs/samples/agent-run-history-screen.md`. A saved toggle allows the brief to feed a connected AI Agent when no live incoming Toolhub agent output exists. Live output always takes priority; disabling the toggle excludes the test document. Editing this document or the mode does not trigger a model call.
-- Keep the canvas open and quiet, with the three agent nodes visible and a compact chat composer floating near its lower center. Avoid a right-side chat panel.
+## Usage
 
-## Chat composer and agent menu
+/Design.RuleFormat/ *Give every rule a clear name and one concise requirement.*
+/Design.ReadScope/ *In Context Builder, attach only the context files relevant to the screen, plus Product direction, Color, Layout, Buttons and controls, and Accessibility and responsive behavior when needed.*
+/Design.UIUXScope/ *UI/UX deliverables are designs or prototypes only unless a request explicitly asks for working behavior. A visible control does not imply a real API, persistence, or action.*
+/Design.ContextSelection/ *Keep component contexts independent. Attach and connect only the contexts required for a task; do not load or merge every component file by default.*
+/Design.Archive/ *Historical LinkedIn scanner guidance is archived at design/archive/linkedin-scanner-v2.md and does not apply to Toolhub.*
 
-- Use a single white rounded composer inspired by the supplied reference: a generous text area above a short tool row, with a dark send button at the lower right. Avoid controls that have no working action.
-- The agent target control sits at the lower left. Its default is Auto, which sends the request to the full team. The user can choose Business Analyst, UI/UX Designer, Developer, or any saved custom agent. Auto runs the three built-in roles in sequence.
-- Open target choices in a floating white menu above the control. Each choice has an icon, a concise name, and a muted one-line description. Give the selected or highlighted choice a soft gray surface. Maintain keyboard navigation and visible focus.
-- Show model setup, loading, and errors only when applicable. Conversation messages appear above the composer; preserve the working agent status and readable agent attribution.
-- Enter sends; Shift+Enter inserts a new line. Disable sending while a request is running or the model is unconfigured.
+## Maintenance
 
-## Shared agent API spend
-
-- Show only a compact 7px-high API spend progress bar in the shared top bar beside the usage bell and account role. Do not show visible text beside or above the bar. Keep the detailed spend and limit in its hover title and accessible meter description. Use amber near 80% and red at the limit. Keep the bar compact on narrow screens.
-- The $5 is a lifetime application budget shared by every agent using the one `OPENAI_API_KEY`, including chat and MCP calls. Read token usage from each GPT-5.6 Luna response, price input, cached input, cache writes, and output, and persist the estimate in PostgreSQL. Reserve a conservative maximum before each call so concurrent agents cannot bypass the cap. Stop agent calls when the cap cannot accommodate the reservation. Show unavailable when tracking cannot be loaded; never show an invented zero.
-- Label this as Toolhub agent API spend, distinct from the Railway usage bell. It covers calls made by this application since tracking was installed, not earlier API calls or other consumers of the same key. The dollar budget is a spend limit, not the model provider's requests-per-minute rate limit.
-
-## Admin account selectors
-
-- Let account table dropdown menus size to their longest option label so department names remain fully visible. Keep the menu within the viewport on narrow screens.
-
-## Visual language and responsive behavior
-
-Use a restrained neutral palette: white surfaces, dark text, subtle gray borders and shadows. Keep controls rounded, compact, and clearly clickable. Maintain at least 40px touch targets for primary chat and canvas actions. On narrow screens, keep the composer inside the viewport, let messages scroll, and keep the canvas toolbar reachable. Honor reduced-motion preferences.
-
-## Design file maintenance
-
-Every UI change should update this current Toolhub section in the same change and reflect the actual shipped behavior. Historical guidance below is retained for context and is not the current product specification.
-
----
-
-# Historical LinkedIn Daily Scanner design draft
-
-Version 2.0 · 2026-09-22 · English interface
-
-## Direction
-
-A calm internal workspace for LinkedIn scanning and review. The visual direction adapts the user's Notion-design-analysis reference: readable content, restrained surfaces, generous spacing and clear actions. LinkedIn blue is the product accent; Notion is a visual reference, not a brand to copy. Values below are project decisions, not verified official Notion or LinkedIn design tokens.
-
-The existing LinkedIn tool's functions, API contracts, data model and business logic must not change as part of the visual redesign. Replace the current frontend presentation with a friendly, content-first application shell for scanning, filtering and reviewing LinkedIn results. Do not add slogans, marketing copy, fake activity, unsupported claims or demo controls.
-
-## Principles
-
-- Put the user's task first: make scanning, filtering and reviewing results immediately understandable.
-- Keep controls rectangular, typography clear and surfaces mostly flat.
-- Use LinkedIn blue for primary actions and brand emphasis. Use pure black or a dark neutral for text and keyboard focus where it provides stronger contrast.
-- Provide labels, focus states, validation, loading and clear completion messages.
-- Use English for every visible label, placeholder, error, accessible name and status.
-- Use the LinkedIn tool's existing product name and logo treatment. Do not use the Notion logo or imply affiliation with Notion or LinkedIn beyond the tool's intended integration.
-- Prefer progressive disclosure: show the most useful information first and keep advanced filters and secondary actions easy to find but visually quiet.
-
-## Tokens
-
-| Role | Value |
-|---|---|
-| Canvas | #ffffff |
-| Secondary surface | #f6f5f4 |
-| Soft surface | #fafaf9 |
-| Heading | #262520 |
-| Body | #37352f |
-| Secondary text | #5d5b54 |
-| Decorative border | #e5e3df |
-| Primary / LinkedIn blue | #0A66C2 |
-| Primary hover/pressed | #004182 |
-| Primary soft surface | #E8F3FF |
-| On-primary | #ffffff |
-| Keyboard focus | #0A66C2 |
-| Error text | #b42318 |
-| Success text | #236b3b |
-| Peach | #ffe8d4 / text #793400 |
-| Mint | #d9f3e1 / text #236b3b |
-| Lavender | #e6e0f5 / text #391c57 |
-| Sky | #dcecfa / text #005bab |
-| Yellow | #fef7d6 / text #793400 |
-
-## Typography and spacing
-
-System sans-serif, with Inter as an optional later asset. Body 16px, primary labels 14px, secondary metadata 12–13px. Form and page headings use 24px/1.35, weight 600. Section headings use 18–20px, weight 600. Brand wordmark is 20–24px depending on the shell context.
-
-Spacing is based on 4px increments. Form controls are 44px high; form width is capped at 360px. Buttons and inputs use 8px radius, content containers 12px. Pill shapes are reserved for appropriate status badges, filters and tabs.
-
-## Application shell
-
-Desktop: use a quiet left sidebar for primary navigation and a content-first main area. The sidebar may contain the product mark, scan/navigation destinations and account controls; it must not compete with the results. Use a compact top bar for page title, scan status and high-value actions.
-
-The main content should use a readable max-width rather than stretching dense data edge to edge. Use a 12-column grid when useful, with a 24–32px desktop gutter. Mobile collapses to one column, uses 24px gutters and allows vertical scrolling. Hide non-essential navigation and decorative illustration on small screens.
-
-Do not wrap every section in a heavy card. Use borders, spacing and soft surfaces to establish grouping. Reserve elevated cards and modals for meaningful hierarchy or confirmation.
-
-## LinkedIn scanner workspace
-
-The primary workspace should make four things clear at a glance: what was scanned, when it ran, whether it succeeded, and what the user can do with the results.
-
-- Keep scan controls near the page title and make the primary scan action visually dominant.
-- Show the last-run timestamp, result count and current status as compact metadata.
-- Present results in a scannable table or responsive list with stable columns, clear row spacing and a visible empty state.
-- Use filters, search and sort controls with persistent labels or clear accessible names. Show active filters as removable chips.
-- Keep row-level actions concise; place destructive or irreversible actions behind confirmation.
-- Preserve the existing LinkedIn result fields and behavior. This document defines presentation, not new product functionality.
-
-## Account layout
-
-Account screens use a centered form on a white canvas. The form is capped at 360px and has no unnecessary surrounding card. Mobile uses a compact logo header and one-column form. Keep headings and account-switch links centered; input labels remain left-aligned.
-
-## Components
-
-- Primary button: LinkedIn blue, white text, clear loading indicator and disabled submission while busy.
-- Inputs: persistent labels, 16px text, explicit password visibility control with accessible names.
-- Secondary actions: clear text links or outlined buttons, always keyboard reachable.
-- Error messages: text plus a tinted surface; never color alone.
-- Success feedback: icon and text; no unsupported claims about real authentication or completed scans.
-- Tables, filters and scan controls must expose labels, status and actionable feedback without relying on color alone.
-- Keep only necessary labels, password requirements, account navigation and actionable error messages.
-
-## Interaction and accessibility
-
-Color/opacity transitions use roughly 150ms. Respect reduced-motion preferences. Use real form, label and button semantics. Move focus to the heading when changing screens and preserve a visible keyboard outline. Use approximately 44px touch targets for primary controls.
-
-Ensure no full-page horizontal overflow. Validate contrast, keyboard use, 200% zoom and responsive behavior on the actual production UI before claiming accessibility conformance.
-
-## Backend and function boundary
-
-Do not change the existing LinkedIn scanner functions, API contracts, authentication behavior, database behavior or permissions during this visual redesign. Show scan success, result counts and account state only after the server confirms them. Never present decorative animation as real system activity. Do not add a design-review bypass, fake data or unsupported authentication claims. Only admins see account management, and the server enforces the same permission. Email delivery and password recovery remain unimplemented unless separately requested.
-
-## Future workspace
-
-If future workspace features are requested, use a collapsible sidebar, content-first pages and node connections similar to workflow editors. Keep tool metadata separate from its position on a board. Do not add future workspace features as part of the visual-only release unless they already exist functionally.
-
-## References
-
-- User-supplied Notion-design-analysis, alpha: source for palette and shape direction.
-- [Notion page customization](https://www.notion.com/help/customize-and-style-your-content): content styling and page-width inspiration.
-- [Notion sidebar navigation](https://www.notion.com/help/guides/navigating-with-the-sidebar): future navigation inspiration.
-- [LinkedIn brand guidelines](https://brand.linkedin.com/): color and brand usage reference; product decisions in this document take precedence.
-
-## Optional decorative diagram
-
-If the existing product includes a department selector, use the installed Select primitive, a 44px trigger and keyboard-accessible options. Do not add a department concept if it is not already part of the product function.
-
-Any existing decorative diagram should remain secondary to the scanner workflow. Use LinkedIn blue for the hub or selected state, retain pastel icon backgrounds, and keep motion subtle. Gentle node float, moving connection dashes and a subtle hub outline may provide looping motion. A compact pause control stops animation; reduced-motion preferences disable it. Mobile hides the illustration to keep the form compact. The motion is decorative, not actual system activity.
-
-## Visual QA checklist
-
-Before considering the frontend redesign complete, verify:
-
-- The main scan action and current scan status are immediately discoverable.
-- Results remain readable with long names, empty data and error states.
-- Active filters, sorting and pagination state are understandable without color alone.
-- Keyboard navigation, focus visibility, 200% zoom and responsive layouts work on every primary screen.
-- LinkedIn blue is reserved for brand emphasis, primary actions and selected states; it does not overwhelm the content.
-- Loading states disable duplicate submissions and do not imply progress that the server has not confirmed.
-- No frontend-only change has altered existing functions or backend behavior.
+/Design.Maintenance/ *When a UI decision changes, update its component context file and this index if the file map or usage rules change. Keep each context focused on its component.*
+/Design.Loading/ *Component contexts are attached to Context Builder by the user and selected through graph connections. The application does not automatically load every context file.*
