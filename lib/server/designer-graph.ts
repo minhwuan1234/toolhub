@@ -114,6 +114,17 @@ export async function getPendingGraphApproval(): Promise<GraphApproval | null> {
   return rows[0] || null;
 }
 
+export type GraphApprovalHistory = GraphApproval & { status: 'pending' | 'approved' | 'denied'; feedback: string | null; decided_at: string | null };
+
+export async function getLatestGraphApproval(approvalNodeId: string): Promise<GraphApprovalHistory | null> {
+  if (!approvalNodeId || approvalNodeId.length > 100) throw new Error('Invalid approval node ID.');
+  const { rows } = await getDatabase().query<GraphApprovalHistory>(
+    'SELECT id, source_node_id, approval_node_id, source_name, output, status, feedback, created_at, decided_at FROM designer_graph_approvals WHERE approval_node_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1',
+    [approvalNodeId],
+  );
+  return rows[0] || null;
+}
+
 export async function decideGraphApproval(id: string, decision: 'approved' | 'denied', feedback: string): Promise<{ targets: string[]; output: string }> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Invalid approval ID.');
   if (decision === 'denied' && !feedback.trim()) throw new Error('Feedback is required when denying.');

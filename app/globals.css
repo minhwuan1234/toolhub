@@ -855,6 +855,13 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .human-approval-content { display:flex; flex:1; flex-direction:column; min-height:0; padding:20px 24px 0; }
 .human-approval-source { padding-bottom:14px; color:#787774; font-size:13px; }
 .human-approval-source strong { color:#37352f; font-weight:600; }
+.human-approval-status { margin-left:auto; padding:5px 9px; border-radius:7px; background:#f1f0ed; color:#64625c; font-size:11px; font-weight:600; text-transform:capitalize; }
+.human-approval-status.is-approved { background:#edf6ee; color:#287b4b; }
+.human-approval-status.is-denied { background:#fff0ed; color:#b42318; }
+.human-approval-empty { display:grid; flex:1; place-items:center; padding:24px; color:#91918b; font-size:13px; text-align:center; }
+.human-approval-review-feedback { display:flex; flex-direction:column; gap:7px; padding:16px 24px 20px; border-top:1px solid #e8e7e3; font-size:12px; }
+.human-approval-review-feedback strong { font-weight:600; }
+.human-approval-review-feedback p { margin:0; color:#57564f; white-space:pre-wrap; overflow-wrap:anywhere; }
 .human-approval-content .workflow-agent-output-tabs { min-width:0; margin:0 -24px; padding:0 24px; border:0; border-bottom:1px solid #e8e7e3; }
 .human-approval-output { display:flex; flex:1; min-height:0; overflow:auto; border:1px solid #e8e7e3; border-radius:9px 9px 0 0; background:#fff; }
 .human-approval-output iframe { flex:1; width:100%; border:0; background:#fff; }

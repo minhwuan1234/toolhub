@@ -7,6 +7,7 @@ import { graphPreviewDocument } from '@/lib/graph-preview';
 import { deliverApprovedDesignerHandoff } from '@/lib/agent-handoff';
 
 type Approval = { id: string; source_name: string; output: string };
+type ApprovalHistory = Approval & { status: 'pending' | 'approved' | 'denied'; feedback: string | null };
 type View = 'preview' | 'html' | 'css' | 'js' | 'json';
 
 function outputFiles(value: string): { html: string; css: string; js: string } | null {
@@ -20,9 +21,46 @@ function outputFiles(value: string): { html: string; css: string; js: string } |
   return null;
 }
 
+function ApprovalOutput({ approval }: { approval: Approval }) {
+  const [view, setView] = useState<View>('preview');
+  const files = outputFiles(approval.output);
+  const selectedView = files ? view : 'json';
+  const code = selectedView === 'json' ? approval.output : selectedView === 'preview' ? '' : files?.[selectedView];
+  return <div className="human-approval-content">
+    <div className="human-approval-source">Output from <strong>{approval.source_name}</strong></div>
+    {files && <fieldset className="workflow-agent-output-tabs"><legend className="sr-only">Output file</legend>{(['preview', 'html', 'css', 'js', 'json'] as const).map(item => <button type="button" key={item} aria-pressed={selectedView === item} onClick={() => setView(item)}>{item === 'preview' ? 'Preview' : item === 'json' ? 'JSON' : `${item === 'html' ? 'index' : item === 'css' ? 'styles' : 'script'}.${item}`}</button>)}</fieldset>}
+    <div className="human-approval-output">{selectedView === 'preview' && files ? <iframe title="Output preview" sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={graphPreviewDocument(files)}/> : <pre>{code}</pre>}</div>
+  </div>;
+}
+
+export function HumanApprovalNodeDialog({ nodeId, nodeName, onClose }: { nodeId: string; nodeName: string; onClose: () => void }) {
+  const [approval, setApproval] = useState<ApprovalHistory | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch(`/api/designer-graph/approvals?nodeId=${encodeURIComponent(nodeId)}`, { cache: 'no-store', signal: controller.signal })
+      .then(async response => {
+        const data = await response.json() as { approval?: ApprovalHistory | null; error?: string };
+        if (!response.ok) throw new Error(data.error || 'Unable to load approval output.');
+        setApproval(data.approval || null);
+      })
+      .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Unable to load approval output.'); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [nodeId]);
+  return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+    <DialogContent className="node-inspector node-inspector-setup node-inspector-agent human-approval-dialog">
+      <header className="inspector-heading"><span className="inspector-icon"><CircleCheck size={21}/></span><DialogTitle>{nodeName}</DialogTitle>{approval && <span className={`human-approval-status is-${approval.status}`}>{approval.status === 'pending' ? 'Pending' : approval.status === 'approved' ? 'Approved' : 'Denied'}</span>}</header>
+      <DialogDescription className="sr-only">Latest output and decision for this Human Approval node.</DialogDescription>
+      {approval ? <ApprovalOutput approval={approval}/> : <output className="human-approval-empty">{loading ? 'Loading output…' : error || 'No output has reached this node yet.'}</output>}
+      {approval?.status === 'denied' && approval.feedback && <div className="human-approval-review-feedback"><strong>Feedback</strong><p>{approval.feedback}</p></div>}
+    </DialogContent>
+  </Dialog>;
+}
+
 export function HumanApprovalDialog() {
   const [approval, setApproval] = useState<Approval | null>(null);
-  const [view, setView] = useState<View>('preview');
   const [denying, setDenying] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [busy, setBusy] = useState(false);
@@ -57,25 +95,18 @@ export function HumanApprovalDialog() {
       const data = await response.json() as { error?: string; errors?: string[]; handoffs?: string[]; handoffOutput?: string };
       if (!response.ok) throw new Error(data.error || 'Unable to save your decision.');
       if (decision === 'approved' && data.handoffOutput) for (const nodeId of data.handoffs || []) deliverApprovedDesignerHandoff(nodeId, approval.id, data.handoffOutput);
-      setApproval(null); setDenying(false); setFeedback(''); setView('preview');
+      setApproval(null); setDenying(false); setFeedback('');
       setNotice(data.errors?.length ? data.errors.join(' ') : '');
       void refresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save your decision.'); }
     finally { setBusy(false); }
   }
 
-  const files = approval ? outputFiles(approval.output) : null;
-  const selectedView = files ? view : 'json';
-  const code = selectedView === 'json' ? approval?.output : selectedView === 'preview' ? '' : files?.[selectedView];
   return <>{notice && !approval && <div className="human-approval-notice" role="alert">{notice}<button type="button" onClick={() => setNotice('')}>Dismiss</button></div>}<Dialog open={Boolean(approval)} onOpenChange={() => {}}>
     <DialogContent showCloseButton={false} className="node-inspector node-inspector-setup node-inspector-agent human-approval-dialog">
       <header className="inspector-heading"><span className="inspector-icon"><CircleCheck size={21}/></span><DialogTitle>Human Approval</DialogTitle></header>
       <DialogDescription className="sr-only">Review the previous node output and approve or deny it.</DialogDescription>
-      <div className="human-approval-content">
-        <div className="human-approval-source">Output from <strong>{approval?.source_name}</strong></div>
-        {files && <fieldset className="workflow-agent-output-tabs"><legend className="sr-only">Output file</legend>{(['preview', 'html', 'css', 'js', 'json'] as const).map(item => <button type="button" key={item} aria-pressed={selectedView === item} onClick={() => setView(item)}>{item === 'preview' ? 'Preview' : item === 'json' ? 'JSON' : `${item === 'html' ? 'index' : item === 'css' ? 'styles' : 'script'}.${item}`}</button>)}</fieldset>}
-        <div className="human-approval-output">{selectedView === 'preview' && files ? <iframe title="Output preview" sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={graphPreviewDocument(files)}/> : <pre>{code}</pre>}</div>
-      </div>
+      {approval && <ApprovalOutput key={approval.id} approval={approval}/>}
       <div className="human-approval-footer">
         {denying && <label className="agent-card-field" htmlFor="human-approval-feedback"><span>Feedback for the agent</span><textarea id="human-approval-feedback" value={feedback} maxLength={4000} onChange={event => { setFeedback(event.target.value); setError(''); }}/></label>}
         {error && <p role="alert" className="workflow-task-error">{error}</p>}

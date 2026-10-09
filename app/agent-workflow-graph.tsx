@@ -15,6 +15,7 @@ import { defaultStructuredOutputSchema, validateStructuredOutput } from '@/lib/s
 import { sampleSingleScreenBrief } from '@/lib/sample-screen-brief';
 import { initialUiScreenContextHashes, uiScreenContextCatalog, uiScreenContextHash, type UiScreenContext } from '@/lib/ui-screen-context-catalog';
 import { graphPreviewDocument } from '@/lib/graph-preview';
+import { HumanApprovalNodeDialog } from './human-approval-dialog';
 
 type ContextFile = { id: string; name: string; content: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
@@ -166,6 +167,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [taskTagPicker, setTaskTagPicker] = useState<{ start: number; query: string } | null>(null);
   const [taskTagIndex, setTaskTagIndex] = useState(0);
   const [editingHandoff, setEditingHandoff] = useState<string | null>(null);
+  const [inspectingApproval, setInspectingApproval] = useState<string | null>(null);
   const [agentLinks, setAgentLinks] = useState<AgentLink[]>([]);
   const [agentOutputs, setAgentOutputs] = useState<AgentOutputSnapshot[]>([]);
   const [fileError, setFileError] = useState('');
@@ -194,6 +196,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const explicitInputMirrorRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const dragRef = useRef<{ id: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
+  const suppressApprovalClickRef = useRef(false);
   const portDragRef = useRef<{ source: string; command: GraphLink['command']; pointerId: number } | null>(null);
 
   useEffect(() => {
@@ -393,6 +396,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     if (editingNode === id) setEditingNode(null);
     if (editingWorkflow === id) setEditingWorkflow(null);
     if (editingAgent === id) setEditingAgent(null);
+    if (inspectingApproval === id) setInspectingApproval(null);
     if (renamingNode === id) setRenamingNode(null);
     if (draft?.source === id || draft?.target === id) setDraft(null);
     requestAnimationFrame(() => canvasRef.current?.focus());
@@ -590,6 +594,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     event.stopPropagation();
     if (event.button !== 0 || !event.isPrimary) return;
     event.currentTarget.focus();
+    suppressApprovalClickRef.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { id: node.id, pointerX: event.clientX, pointerY: event.clientY, x: node.x, y: node.y };
   }
@@ -599,6 +604,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     const drag = dragRef.current;
     const stage = stageRef.current;
     if (!drag || drag.id !== id || !stage) return;
+    if (Math.hypot(event.clientX - drag.pointerX, event.clientY - drag.pointerY) > 4) suppressApprovalClickRef.current = true;
     const x = Math.max(8, drag.x + event.clientX - drag.pointerX);
     const y = Math.max(8, drag.y + event.clientY - drag.pointerY);
     setNodes(current => current.map(node => node.id === id ? { ...node, x, y } : node));
@@ -668,6 +674,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           type="button" className="canvas-node workflow-graph-node"
           aria-label={`${node.name}. ${node.active ? node.kind === 'agent-handoff' ? node.handoffMode === 'receive' ? 'Receive data' : 'Send handoff' : 'Active' : 'Inactive'}. Drag or use arrow keys to move. Press Delete to remove.`}
           onDoubleClick={() => { if (node.kind === 'context') { setFileError(''); setEditingNode(node.id); } else if (node.kind === 'workflow') setEditingWorkflow(node.id); else if (node.kind === 'agent') openAgentOutput(node); else if (node.kind === 'agent-handoff') setEditingHandoff(node.id); }}
+          onClick={() => { if (node.kind === 'human-approval' && !suppressApprovalClickRef.current) setInspectingApproval(node.id); suppressApprovalClickRef.current = false; }}
           onPointerDown={event => startDrag(event, node)}
           onPointerMove={event => moveDrag(event, node.id)}
           onPointerUp={event => { dragRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
@@ -691,6 +698,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           {node.kind === 'context' && <ContextMenuItem onClick={() => { setFileError(''); setEditingNode(node.id); }}><FileText/>Edit context</ContextMenuItem>}
           {node.kind === 'workflow' && <ContextMenuItem onClick={() => setEditingWorkflow(node.id)}><Workflow/>Edit task</ContextMenuItem>}
           {node.kind === 'agent' && <ContextMenuItem onClick={() => openAgentOutput(node)}><Bot/>Structured output</ContextMenuItem>}
+          {node.kind === 'human-approval' && <ContextMenuItem onClick={() => setInspectingApproval(node.id)}><CircleCheck/>View output</ContextMenuItem>}
           {node.kind === 'agent-handoff' && <ContextMenuItem onClick={() => setEditingHandoff(node.id)}><ArrowRightLeft/>Configure handoff</ContextMenuItem>}
           <ContextMenuItem onClick={() => { setNameDraft(node.name); setRenamingNode(node.id); }}><Pencil/>Rename</ContextMenuItem>
           <ContextMenuSub><ContextMenuSubTrigger><Shapes/>Change icon</ContextMenuSubTrigger><ContextMenuSubContent className="node-context-menu node-icon-grid" onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>{iconOptions.map(({ type, label, icon: Icon }) => <ContextMenuItem key={type} aria-label={label} title={label} data-selected={node.icon === type} onClick={() => updateNode(node.id, { icon: type })}><Icon/></ContextMenuItem>)}</ContextMenuSubContent></ContextMenuSub>
@@ -705,6 +713,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       <div className="node-picker-options workflow-graph-picker">{([{ kind: 'workflow', label: 'Workflow node', icon: Workflow }, { kind: 'context', label: 'Context Builder', icon: FileText }, { kind: 'agent', label: 'AI Agent', icon: Bot }, { kind: 'tool-calling', label: 'Tool Calling', icon: Wrench }, { kind: 'human-approval', label: 'Human Approval', icon: CircleCheck }, { kind: 'skill', label: 'Skill', icon: BookOpen }, { kind: 'agent-handoff', label: 'Agent Handoff', icon: ArrowRightLeft }] as const).map(({ kind, label, icon: Icon }) => <button type="button" key={kind} draggable={loaded && nodes.length < 100} disabled={!loaded || nodes.length >= 100} onDragStart={event => { event.dataTransfer.setData('application/x-toolhub-graph-node', kind); event.dataTransfer.effectAllowed = 'copy'; }} onDragEnd={() => setDragOver(false)} onClick={() => addNode(kind)}><span><Icon size={20}/></span>{label}</button>)}</div>
     </aside>
     </div>
+    {inspectingApproval && <HumanApprovalNodeDialog key={inspectingApproval} nodeId={inspectingApproval} nodeName={nodes.find(node => node.id === inspectingApproval)?.name || 'Human Approval'} onClose={() => setInspectingApproval(null)}/>}
     <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-rename-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
     <Dialog open={Boolean(editingWorkflow)} onOpenChange={open => { if (!open) { setEditingWorkflow(null); setTaskTagPicker(null); } }}>
       <DialogContent className="workflow-task-dialog">

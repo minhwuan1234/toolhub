@@ -1,5 +1,5 @@
 import { getAuth } from '@/lib/server/auth';
-import { decideGraphApproval, getPendingGraphApproval, getDesignerGraph, runStoredGraphAgent } from '@/lib/server/designer-graph';
+import { decideGraphApproval, getPendingGraphApproval, getLatestGraphApproval, getDesignerGraph, runStoredGraphAgent } from '@/lib/server/designer-graph';
 
 const headers = { 'Cache-Control': 'no-store' };
 
@@ -11,6 +11,11 @@ async function admin(request: Request) {
 export async function GET(request: Request) {
   try {
     if (!await admin(request)) return Response.json({ error: 'Admin access required.' }, { status: 403, headers });
+    const nodeId = new URL(request.url).searchParams.get('nodeId');
+    if (nodeId !== null) {
+      if (!nodeId || nodeId.length > 100) return Response.json({ error: 'Invalid approval node ID.' }, { status: 400, headers });
+      return Response.json({ approval: await getLatestGraphApproval(nodeId) }, { headers });
+    }
     return Response.json({ approval: await getPendingGraphApproval() }, { headers });
   } catch { return Response.json({ error: 'Unable to load approvals.' }, { status: 503, headers }); }
 }
