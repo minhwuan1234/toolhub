@@ -195,7 +195,7 @@ export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', app
   if (approvedOutput.length > 99000) throw new Error('Approved output exceeds the next agent context limit.');
   const feedback = await getUnconsumedGraphFeedback(node.id);
   const message = feedback ? `${input.content}\n\nHuman review feedback for this revision:\n${feedback.feedback}` : input.content;
-  const result = await runAgent('designer', message, approvedOutput ? `Upstream graph output:\n${approvedOutput}` : '', { outputSchema: format.schema, additionalInstructions: node.instructionPrompt, graphApprovedContext: Boolean(approvedOutput) });
+  const result = await runAgent('designer', message, approvedOutput ? `Upstream graph output:\n${approvedOutput}` : '', { outputSchema: format.schema, additionalInstructions: node.instructionPrompt, graphApprovedContext: Boolean(approvedOutput), graphInput: true });
   const content = JSON.stringify(JSON.parse(result.content) as unknown, null, 2);
   await saveDesignerGraphOutput(node.id, content);
   if (feedback) await markGraphFeedbackConsumed(feedback.id);

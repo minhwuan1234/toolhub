@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildConnectedTagRegistry, buildTagRegistry, resolveConnectedInput, resolveContextText, resolveGraphAgentInput, resolveTag, type ContextTagSource } from '../lib/context-tags';
+import { buildConnectedTagRegistry, buildTagRegistry, maxGraphAgentInputCharacters, resolveConnectedInput, resolveContextText, resolveGraphAgentInput, resolveTag, type ContextTagSource } from '../lib/context-tags';
 
 const source = (text: string, name = 'Design'): ContextTagSource => ({
   id: 'context-1', kind: 'context', contextFiles: [],
@@ -102,4 +102,13 @@ test('AI Agent Explicit input resolves only directly connected tags and receives
   ];
   assert.deepEqual(resolveGraphAgentInput('agent', 'Create a screen with /Color/.', nodes, links, { handoff: 'BA brief' }), { ok: true, content: 'Create a screen with Use blue..\n\nBA brief' });
   assert.equal(resolveGraphAgentInput('agent', 'Use /Type/.', nodes, links).ok, false);
+});
+
+test('graph input accepts connected context beyond the old 4,000 character cap but retains a bounded limit', () => {
+  const links = [{ source: 'context-1', target: 'agent', command: 'input' }];
+  const expanded = resolveGraphAgentInput('agent', '/Design/', [source('A'.repeat(5000))], links);
+  assert.equal(expanded.ok, true);
+  if (expanded.ok) assert.equal(expanded.content.length, 5000);
+  const oversized = resolveGraphAgentInput('agent', '/Design/', [source('A'.repeat(maxGraphAgentInputCharacters + 1))], links);
+  assert.equal(oversized.ok, false);
 });

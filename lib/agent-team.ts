@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { defaultAgentCards } from './agent-cards';
 import { listAgentCards } from './server/agent-cards';
 import { reserveAgentApiSpend, settleAgentApiSpend } from './server/agent-api-spend';
+import { maxGraphAgentInputCharacters } from './context-tags';
 
 export const agents = [
   { id: 'ba', name: 'BA', title: 'Business Analyst', outcome: 'Requirements and acceptance criteria' },
@@ -28,9 +29,9 @@ async function designGuidelines() {
   return source.split('\n---\n')[0].slice(0, 12000);
 }
 
-export async function runAgent(agentId: AgentId, message: string, context = '', options?: { outputSchema?: Record<string, unknown>; additionalInstructions?: string; graphApprovedContext?: boolean }): Promise<AgentResult> {
+export async function runAgent(agentId: AgentId, message: string, context = '', options?: { outputSchema?: Record<string, unknown>; additionalInstructions?: string; graphApprovedContext?: boolean; graphInput?: boolean }): Promise<AgentResult> {
   const brief = message.trim();
-  if (brief.length < 3 || brief.length > 4000) throw new Error('Message must be 3–4,000 characters.');
+  if (brief.length < 3 || brief.length > (options?.graphInput ? maxGraphAgentInputCharacters + 5000 : 4000)) throw new Error(options?.graphInput ? 'Graph input is too long.' : 'Message must be 3–4,000 characters.');
   if (context.length > (options?.graphApprovedContext ? 100000 : 12000)) throw new Error('Conversation context is too long.');
   if (options?.additionalInstructions && options.additionalInstructions.length > 4000) throw new Error('Instruction prompt is too long.');
   const key = process.env.OPENAI_API_KEY;

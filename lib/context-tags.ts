@@ -12,6 +12,7 @@ export type TagDefinition = { id: string; name: string; sourceNodeId: string; co
 export type TagRegistry = { definitions: Map<string, TagDefinition>; conflicts: Set<string> };
 export type TagResolution = { ok: true; content: string } | { ok: false; error: string };
 export type ContextInputLink = { source: string; target: string; command: string };
+export const maxGraphAgentInputCharacters = 100_000;
 
 const tagPattern = /(^|\s)\/([^/*\n]{1,40})\/(?:\s*\*([\s\S]*?)\*)?/g;
 const tagKey = (name: string) => name.trim().toLocaleLowerCase('en-US');
@@ -62,7 +63,7 @@ export function resolveGraphAgentInput(agentNodeId: string, explicitInput: strin
   const directHandoffs = nodes.filter(node => node.kind === 'agent-handoff' && node.active !== false && node.handoffMode === 'receive' && workflowIds.has(node.id)).map(node => handoffData[node.id]).filter(Boolean);
   parts.push(...directHandoffs);
   const content = parts.join('\n\n');
-  if (content.length > 4000) return { ok: false, error: 'Selected task and context exceed the 4,000 character model input limit.' };
+  if (content.length > maxGraphAgentInputCharacters) return { ok: false, error: 'Selected task and context exceed the 100,000 character graph input limit.' };
   return { ok: true, content };
 }
 
