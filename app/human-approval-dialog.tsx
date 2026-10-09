@@ -7,7 +7,7 @@ import { graphPreviewDocument } from '@/lib/graph-preview';
 import { deliverApprovedDesignerHandoff } from '@/lib/agent-handoff';
 
 type Approval = { id: string; source_name: string; output: string };
-type ApprovalHistory = Approval & { status: 'pending' | 'approved' | 'denied' | 'upstream-output'; feedback: string | null };
+type ApprovalHistory = Approval & { source_node_id: string; status: 'pending' | 'approved' | 'denied' | 'upstream-output'; feedback: string | null };
 type View = 'preview' | 'html' | 'css' | 'js' | 'json';
 
 function outputFiles(value: string): { html: string; css: string; js: string } | null {
@@ -44,10 +44,15 @@ export function GraphRunOutputDialog({ nodeName, output, running, error, onClose
   </Dialog>;
 }
 
-export function HumanApprovalNodeDialog({ nodeId, nodeName, upstreamOutput, upstreamName, onClose }: { nodeId: string; nodeName: string; upstreamOutput?: string; upstreamName?: string; onClose: () => void }) {
+export function HumanApprovalNodeDialog({ nodeId, nodeName, upstreamNodeId, upstreamOutput, upstreamName, onClose }: { nodeId: string; nodeName: string; upstreamNodeId?: string; upstreamOutput?: string; upstreamName?: string; onClose: () => void }) {
   const [approval, setApproval] = useState<ApprovalHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [denying, setDenying] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [decisionError, setDecisionError] = useState('');
+  const [notice, setNotice] = useState('');
   useEffect(() => {
     const controller = new AbortController();
     void fetch(`/api/designer-graph/approvals?nodeId=${encodeURIComponent(nodeId)}`, { cache: 'no-store', signal: controller.signal })
@@ -60,13 +65,39 @@ export function HumanApprovalNodeDialog({ nodeId, nodeName, upstreamOutput, upst
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [nodeId]);
-  const visibleApproval = approval || (!loading && !error && upstreamOutput ? { id: `local:${nodeId}`, source_name: upstreamName || 'Connected node', output: upstreamOutput, status: 'upstream-output' as const, feedback: null } : null);
-  return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+  const visibleApproval = approval || (!loading && !error && upstreamOutput && upstreamNodeId ? { id: `local:${nodeId}`, source_node_id: upstreamNodeId, source_name: upstreamName || 'Connected node', output: upstreamOutput, status: 'upstream-output' as const, feedback: null } : null);
+  const canDecide = Boolean(visibleApproval?.output && (visibleApproval.status === 'pending' || visibleApproval.status === 'upstream-output'));
+
+  async function decide(decision: 'approved' | 'denied') {
+    if (!visibleApproval || !canDecide || busy) return;
+    if (decision === 'denied' && !denying) { setDenying(true); setDecisionError(''); return; }
+    if (decision === 'denied' && !feedback.trim()) { setDecisionError('Enter feedback for the agent.'); return; }
+    setBusy(true); setDecisionError(''); setNotice('');
+    try {
+      const body = visibleApproval.status === 'pending' ? { id: visibleApproval.id, decision, feedback: decision === 'denied' ? feedback.trim() : '' } : { nodeId, sourceNodeId: visibleApproval.source_node_id, output: visibleApproval.output, decision, feedback: decision === 'denied' ? feedback.trim() : '' };
+      const response = await fetch('/api/designer-graph/approvals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await response.json() as { approvalId?: string; error?: string; errors?: string[]; handoffs?: string[]; handoffOutput?: string };
+      if (!response.ok) throw new Error(data.error || 'Unable to save your decision.');
+      if (decision === 'approved' && data.handoffOutput) for (const target of data.handoffs || []) deliverApprovedDesignerHandoff(target, data.approvalId || visibleApproval.id, data.handoffOutput);
+      setApproval({ ...visibleApproval, id: data.approvalId || visibleApproval.id, status: decision, feedback: decision === 'denied' ? feedback.trim() : null });
+      setDenying(false); setFeedback(''); setNotice(data.errors?.join(' ') || '');
+      window.dispatchEvent(new Event('toolhub:graph-output'));
+    } catch (cause) { setDecisionError(cause instanceof Error ? cause.message : 'Unable to save your decision.'); }
+    finally { setBusy(false); }
+  }
+
+  return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}>
     <DialogContent className="node-inspector node-inspector-setup node-inspector-agent human-approval-dialog">
       <header className="inspector-heading"><span className="inspector-icon"><CircleCheck size={21}/></span><DialogTitle>{nodeName}</DialogTitle>{visibleApproval && <span className={`human-approval-status is-${visibleApproval.status}`}>{visibleApproval.status === 'pending' ? 'Pending' : visibleApproval.status === 'approved' ? 'Approved' : visibleApproval.status === 'denied' ? 'Denied' : 'Not submitted'}</span>}</header>
       <DialogDescription className="sr-only">Latest output and decision for this Human Approval node.</DialogDescription>
       {visibleApproval ? <ApprovalOutput approval={visibleApproval}/> : <output className="human-approval-empty">{loading ? 'Loading output…' : error || 'No output has reached this node yet.'}</output>}
       {visibleApproval?.status === 'denied' && visibleApproval.feedback && <div className="human-approval-review-feedback"><strong>Feedback</strong><p>{visibleApproval.feedback}</p></div>}
+      <div className="human-approval-footer">
+        {denying && <label className="agent-card-field" htmlFor="human-approval-node-feedback"><span>Feedback for the agent</span><textarea id="human-approval-node-feedback" value={feedback} maxLength={4000} onChange={event => { setFeedback(event.target.value); setDecisionError(''); }}/></label>}
+        {decisionError && <p role="alert" className="workflow-task-error">{decisionError}</p>}
+        {notice && <output className="workflow-task-error">{notice}</output>}
+        <div className="human-approval-actions">{denying && <button type="button" disabled={busy} onClick={() => { setDenying(false); setFeedback(''); setDecisionError(''); }}>Cancel</button>}<button type="button" disabled={!canDecide || busy} onClick={() => void decide('denied')}>{denying ? 'Submit denial' : 'Deny'}</button><button type="button" disabled={!canDecide || busy} onClick={() => void decide('approved')}>{busy ? 'Saving…' : 'Approve'}</button></div>
+      </div>
     </DialogContent>
   </Dialog>;
 }

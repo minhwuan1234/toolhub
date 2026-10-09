@@ -26,13 +26,15 @@ export async function POST(request: Request) {
     if (!base || request.headers.get('origin') !== new URL(base).origin) return Response.json({ error: 'Invalid request origin.' }, { status: 403, headers });
     if (!await admin(request)) return Response.json({ error: 'Admin access required.' }, { status: 403, headers });
     if (!request.headers.get('content-type')?.startsWith('application/json')) return Response.json({ error: 'JSON required.' }, { status: 415, headers });
-    if (Number(request.headers.get('content-length') || 0) > 5000) return Response.json({ error: 'Request is too large.' }, { status: 413, headers });
+    if (Number(request.headers.get('content-length') || 0) > 1_000_000) return Response.json({ error: 'Request is too large.' }, { status: 413, headers });
     const raw = await request.text();
-    if (raw.length > 5000) return Response.json({ error: 'Request is too large.' }, { status: 413, headers });
-    const body = JSON.parse(raw) as { id?: unknown; decision?: unknown; feedback?: unknown };
-    if (typeof body.id !== 'string' || (body.decision !== 'approved' && body.decision !== 'denied') || (body.feedback !== undefined && typeof body.feedback !== 'string')) return Response.json({ error: 'Invalid decision.' }, { status: 400, headers });
-    const { targets, output } = await decideGraphApproval(body.id, body.decision, typeof body.feedback === 'string' ? body.feedback : '');
-    if (body.decision === 'denied') return Response.json({ status: body.decision, targets }, { headers });
+    if (raw.length > 1_000_000) return Response.json({ error: 'Request is too large.' }, { status: 413, headers });
+    const body = JSON.parse(raw) as { id?: unknown; nodeId?: unknown; sourceNodeId?: unknown; output?: unknown; decision?: unknown; feedback?: unknown };
+    const pendingId = typeof body.id === 'string' ? body.id : null;
+    const review = typeof body.nodeId === 'string' && typeof body.sourceNodeId === 'string' && typeof body.output === 'string' ? { approvalNodeId: body.nodeId, sourceNodeId: body.sourceNodeId, output: body.output } : undefined;
+    if ((!pendingId && !review) || (body.decision !== 'approved' && body.decision !== 'denied') || (body.feedback !== undefined && typeof body.feedback !== 'string')) return Response.json({ error: 'Invalid decision.' }, { status: 400, headers });
+    const { targets, output, approvalId } = await decideGraphApproval(pendingId, body.decision, typeof body.feedback === 'string' ? body.feedback : '', review);
+    if (body.decision === 'denied') return Response.json({ status: body.decision, targets, approvalId }, { headers });
     const { document } = await getDesignerGraph();
     const runs: string[] = [];
     const handoffs: string[] = [];
@@ -45,7 +47,7 @@ export async function POST(request: Request) {
       try { await runStoredGraphAgent(target, '', output); runs.push(target); }
       catch (error) { errors.push(`${node.name}: ${error instanceof Error ? error.message : 'Unable to run.'}`); }
     }
-    return Response.json({ status: body.decision, targets, runs, handoffs, handoffOutput: handoffs.length ? output : undefined, errors }, { headers });
+    return Response.json({ status: body.decision, targets, runs, handoffs, handoffOutput: handoffs.length ? output : undefined, errors, approvalId }, { headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to save approval.';
     return Response.json({ error: message }, { status: message.includes('already been handled') ? 409 : 400, headers });

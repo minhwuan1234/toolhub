@@ -863,14 +863,14 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .human-approval-status.is-approved { background:#edf6ee; color:#287b4b; }
 .human-approval-status.is-denied { background:#fff0ed; color:#b42318; }
 .human-approval-empty { display:grid; flex:1; place-items:center; padding:24px; color:#91918b; font-size:13px; text-align:center; }
-.human-approval-review-feedback { display:flex; flex-direction:column; gap:7px; padding:16px 24px 20px; border-top:1px solid #e8e7e3; font-size:12px; }
+.human-approval-review-feedback { display:flex; flex:none; flex-direction:column; gap:7px; max-height:180px; overflow:auto; padding:16px 24px 20px; border-top:1px solid #e8e7e3; font-size:12px; }
 .human-approval-review-feedback strong { font-weight:600; }
 .human-approval-review-feedback p { margin:0; color:#57564f; white-space:pre-wrap; overflow-wrap:anywhere; }
 .human-approval-content .workflow-agent-output-tabs { min-width:0; margin:0 -24px; padding:0 24px; border:0; border-bottom:1px solid #e8e7e3; }
 .human-approval-output { display:flex; flex:1; min-height:0; overflow:auto; border:1px solid #e8e7e3; border-radius:9px 9px 0 0; background:#fff; }
 .human-approval-output iframe { flex:1; width:100%; border:0; background:#fff; }
 .human-approval-output pre { flex:1; margin:0; padding:18px; overflow:auto; color:#37352f; font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
-.human-approval-footer { display:flex; flex-direction:column; gap:10px; padding:16px 24px 20px; border-top:1px solid #e8e7e3; }
+.human-approval-footer { display:flex; flex:none; flex-direction:column; gap:10px; padding:16px 24px 20px; border-top:1px solid #e8e7e3; }
 .human-approval-footer .agent-card-field { display:flex; flex-direction:column; gap:8px; font-size:13px; font-weight:600; }
 .human-approval-footer textarea { min-height:90px; max-height:180px; padding:12px; resize:vertical; border:1px solid #deddd8; border-radius:8px; outline:none; font:inherit; font-weight:400; }
 .human-approval-footer textarea:focus { border-color:#89877f; }

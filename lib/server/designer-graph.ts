@@ -136,21 +136,38 @@ export async function getLatestGraphApproval(approvalNodeId: string): Promise<Gr
   return { id: `upstream:${output.node_id}`, source_node_id: output.node_id, approval_node_id: approvalNodeId, source_name: source?.name || 'Connected node', output: output.content, status: 'upstream-output', feedback: null, created_at: output.updated_at.toISOString(), decided_at: null };
 }
 
-export async function decideGraphApproval(id: string, decision: 'approved' | 'denied', feedback: string): Promise<{ targets: string[]; output: string }> {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Invalid approval ID.');
+export async function decideGraphApproval(id: string | null, decision: 'approved' | 'denied', feedback: string, review?: { approvalNodeId: string; sourceNodeId: string; output: string }): Promise<{ targets: string[]; output: string; approvalId: string }> {
+  if (id && !/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Invalid approval ID.');
+  if (!id && (!review || !review.approvalNodeId || !review.sourceNodeId || review.output.length > 200000)) throw new Error('Invalid approval output.');
   if (decision === 'denied' && !feedback.trim()) throw new Error('Feedback is required when denying.');
   if (feedback.length > 4000) throw new Error('Feedback is too long.');
   const client = await getDatabase().connect();
   try {
     await client.query('BEGIN');
-    const { rows: approvals } = await client.query<{ approval_node_id: string; output: string }>('SELECT approval_node_id, output FROM designer_graph_approvals WHERE id=$1 AND status=$2 FOR UPDATE', [id, 'pending']);
-    if (!approvals[0]) throw new Error('This approval has already been handled.');
-    const { rows } = await client.query<{ document: DesignerGraphDocument }>('SELECT document FROM designer_graphs WHERE id=$1', [graphId]);
+    const { rows } = await client.query<{ document: DesignerGraphDocument }>('SELECT document FROM designer_graphs WHERE id=$1 FOR UPDATE', [graphId]);
     const graph = rows[0] ? validateDesignerGraph(rows[0].document) : null;
-    const targets = graph?.links.filter(link => link.source === approvals[0].approval_node_id && (decision === 'approved' ? link.command === 'approve' : link.command === 'deny' || link.command === 'loop')).map(link => link.target) || [];
-    await client.query('UPDATE designer_graph_approvals SET status=$2, feedback=$3, branch_targets=$4, decided_at=now() WHERE id=$1', [id, decision, decision === 'denied' ? feedback.trim() : null, JSON.stringify(targets)]);
+    if (!graph) throw new Error('Save the UI/UX graph before reviewing output.');
+    let approval: { approval_node_id: string; output: string };
+    let approvalId = id;
+    if (approvalId) {
+      const { rows: approvals } = await client.query<{ approval_node_id: string; output: string }>('SELECT approval_node_id, output FROM designer_graph_approvals WHERE id=$1 AND status=$2 FOR UPDATE', [approvalId, 'pending']);
+      if (!approvals[0]) throw new Error('This approval has already been handled.');
+      approval = approvals[0];
+    } else {
+      const target = graph.nodes.find(node => node.id === review!.approvalNodeId && node.kind === 'human-approval' && node.active !== false);
+      const source = graph.nodes.find(node => node.id === review!.sourceNodeId && node.active !== false);
+      if (!target || !source || !graph.links.some(link => link.source === source.id && link.target === target.id && link.command === 'input')) throw new Error('The output is no longer connected to this approval node.');
+      const { rows: outputs } = await client.query<{ content: string }>('SELECT content FROM designer_graph_outputs WHERE node_id=$1 FOR UPDATE', [source.id]);
+      if (outputs[0] && outputs[0].content !== review!.output) throw new Error('The connected output changed. Reopen this node to review the latest version.');
+      const { rows: pending } = await client.query<{ id: string }>('SELECT id FROM designer_graph_approvals WHERE approval_node_id=$1 AND source_node_id=$2 AND output=$3 AND status=$4 ORDER BY created_at DESC LIMIT 1 FOR UPDATE', [target.id, source.id, review!.output, 'pending']);
+      approvalId = pending[0]?.id || randomUUID();
+      if (!pending[0]) await client.query('INSERT INTO designer_graph_approvals (id,source_node_id,approval_node_id,source_name,output) VALUES ($1,$2,$3,$4,$5)', [approvalId, source.id, target.id, source.name, review!.output]);
+      approval = { approval_node_id: target.id, output: review!.output };
+    }
+    const targets = graph.links.filter(link => link.source === approval.approval_node_id && (decision === 'approved' ? link.command === 'approve' : link.command === 'deny' || link.command === 'loop')).map(link => link.target);
+    await client.query('UPDATE designer_graph_approvals SET status=$2, feedback=$3, branch_targets=$4, decided_at=now() WHERE id=$1', [approvalId, decision, decision === 'denied' ? feedback.trim() : null, JSON.stringify(targets)]);
     await client.query('COMMIT');
-    return { targets, output: approvals[0].output };
+    return { targets, output: approval.output, approvalId: approvalId! };
   } catch (error) { await client.query('ROLLBACK'); throw error; }
   finally { client.release(); }
 }
