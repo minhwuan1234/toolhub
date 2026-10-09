@@ -758,6 +758,8 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .workflow-graph-port { top:22px; }
 .workflow-graph-port-input { left:-10px; }
 .workflow-graph-port-output { right:-10px; }
+.workflow-graph-port-output.is-approve { top:9px; }
+.workflow-graph-port-output.is-deny { top:35px; }
 .workflow-context-dialog.node-inspector.node-inspector-agent[data-slot='dialog-content'] { gap:0; }
 .workflow-context-form { flex:1; }
 .workflow-context-form .agent-card-field { display:flex; flex:1; flex-direction:column; align-items:stretch; gap:6px; min-height:0; }

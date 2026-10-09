@@ -26,3 +26,16 @@ void test('saved graph rejects broken links and duplicate node IDs', () => {
   assert.throws(() => validateDesignerGraph({ ...graph, links: [{ source: 'missing', target: 'agent-1', command: 'input' }] }), /invalid link/);
   assert.throws(() => validateDesignerGraph({ ...graph, nodes: [...graph.nodes, graph.nodes[0]] }), /duplicate node IDs/);
 });
+
+void test('Human Approval keeps separate Approve and Deny connections', () => {
+  const nodes = [
+    ...graph.nodes,
+    { ...graph.nodes[2], id: 'approval', kind: 'human-approval', x: 200 },
+  ];
+  const links = [
+    { id: 'approve', source: 'approval', target: 'agent-1', command: 'approve' },
+    { id: 'deny', source: 'approval', target: 'agent-1', command: 'deny' },
+  ];
+  assert.deepEqual(validateDesignerGraph({ ...graph, nodes, links }).links, links);
+  assert.throws(() => validateDesignerGraph({ ...graph, nodes, links: [{ ...links[0], source: 'context-1' }] }), /invalid link/);
+});

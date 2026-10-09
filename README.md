@@ -18,6 +18,8 @@ In Toolhub chat, an admin can also ask Auto or UI/UX to run the UI/UX graph from
 
 The AI Agent Output panel includes a Preview tab for structured outputs containing `html`, `css`, and `js`. It combines the three files in an isolated iframe so the screen can be viewed and interacted with without publishing it. The preview blocks network requests and access to the Toolhub page; external assets and API calls in generated code will not load there.
 
+Human Approval nodes have one input and two output ports. Connections from the upper port are labeled Approve; connections from the lower port are labeled Deny. Both branches are saved with the graph and remain visible after reload. Approval decisions and branch execution are not wired yet.
+
 ## Railway setup
 
 In the **toolhub** service's Variables tab (not the Postgres service), configure:

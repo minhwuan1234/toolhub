@@ -19,7 +19,7 @@ import { graphPreviewDocument } from '@/lib/graph-preview';
 type ContextFile = { id: string; name: string; content: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
 type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context' | 'agent' | 'tool-calling' | 'human-approval' | 'skill' | 'agent-handoff'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[]; contextTags: ContextTag[]; handoffMode: 'receive' | 'send'; testDocument: string; useTestDocument: boolean; taskText: string; instructionPrompt: string; explicitInput: string; structuredOutput: string; lastOutput: string };
-type GraphLink = { id: string; source: string; target: string; command: 'input' };
+type GraphLink = { id: string; source: string; target: string; command: 'input' | 'approve' | 'deny' };
 
 const storageKey = 'toolhub:designer-graph:v3';
 const previousStorageKey = 'toolhub:designer-graph:v2';
@@ -116,12 +116,21 @@ function isGraphLink(value: unknown): value is GraphLink {
   return typeof link.id === 'string' && typeof link.source === 'string' && typeof link.target === 'string' && link.source !== link.target;
 }
 
+function normalizeGraphLink(link: GraphLink, nodes: GraphNode[]): GraphLink {
+  const source = nodes.find(node => node.id === link.source);
+  return { ...link, command: source?.kind === 'human-approval' ? link.command === 'deny' ? 'deny' : 'approve' : 'input' };
+}
+
 function savedGraphDocument(nodes: GraphNode[], links: GraphLink[], screenContextsSeeded: boolean, screenContextVersion: number) {
   return { nodes: nodes.map(({ lastOutput: _lastOutput, ...node }) => node), links, screenContextsSeeded, screenContextVersion };
 }
 
-function linkPath(source: GraphNode, target: GraphNode) {
-  return curve({ x: source.x + nodeWidth, y: source.y + nodeWidth / 2 }, { x: target.x, y: target.y + nodeWidth / 2 });
+function outputPoint(source: GraphNode, command: GraphLink['command']) {
+  return { x: source.x + nodeWidth, y: source.y + (source.kind === 'human-approval' ? command === 'deny' ? 45 : 19 : nodeWidth / 2) };
+}
+
+function linkPath(source: GraphNode, target: GraphNode, command: GraphLink['command']) {
+  return curve(outputPoint(source, command), { x: target.x, y: target.y + nodeWidth / 2 });
 }
 
 function curve(start: { x: number; y: number }, end: { x: number; y: number }) {
@@ -139,7 +148,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [screenContextRetry, setScreenContextRetry] = useState(0);
   const [graphError, setGraphError] = useState('');
   const [selectedLink, setSelectedLink] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ source: string; point: { x: number; y: number }; target: string | null } | null>(null);
+  const [draft, setDraft] = useState<{ source: string; command: GraphLink['command']; point: { x: number; y: number }; target: string | null } | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -185,7 +194,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const explicitInputMirrorRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const dragRef = useRef<{ id: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
-  const portDragRef = useRef<{ source: string; pointerId: number } | null>(null);
+  const portDragRef = useRef<{ source: string; command: GraphLink['command']; pointerId: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -201,7 +210,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           const graph = JSON.parse(saved) as { nodes?: unknown; links?: unknown; pan?: { x?: unknown; y?: unknown }; screenContextsSeeded?: boolean; screenContextVersion?: number };
           savedNodes = Array.isArray(graph.nodes) ? graph.nodes.filter(isGraphNode).slice(0, 100).map(normalizeNode) : [];
           const nodeIds = new Set(savedNodes.map(node => node.id));
-          savedLinks = Array.isArray(graph.links) ? graph.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300).map(link => ({ ...link, command: 'input' as const })) : [];
+          savedLinks = Array.isArray(graph.links) ? graph.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300).map(link => normalizeGraphLink(link, savedNodes)) : [];
           seeded = graph.screenContextsSeeded === true;
           version = graph.screenContextVersion === 2 ? 2 : seeded ? 1 : 0;
           if (Number.isFinite(graph.pan?.x) && Number.isFinite(graph.pan?.y)) setPan({ x: graph.pan!.x as number, y: graph.pan!.y as number });
@@ -222,7 +231,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           const localOutputs = new Map(savedNodes.map(node => [node.id, node.lastOutput]));
           savedNodes = Array.isArray(document.nodes) ? document.nodes.filter(isGraphNode).slice(0, 100).map(normalizeNode).map(node => ({ ...node, lastOutput: result.outputs?.[node.id] || localOutputs.get(node.id) || '' })) : [];
           const nodeIds = new Set(savedNodes.map(node => node.id));
-          savedLinks = Array.isArray(document.links) ? document.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300).map(link => ({ ...link, command: 'input' as const })) : [];
+          savedLinks = Array.isArray(document.links) ? document.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300).map(link => normalizeGraphLink(link, savedNodes)) : [];
           seeded = document.screenContextsSeeded === true;
           version = document.screenContextVersion === 2 ? 2 : seeded ? 1 : 0;
           lastSavedGraphRef.current = JSON.stringify(savedGraphDocument(savedNodes, savedLinks, seeded, version));
@@ -389,9 +398,10 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     requestAnimationFrame(() => canvasRef.current?.focus());
   }
 
-  function connect(source: string, target: string) {
+  function connect(source: string, target: string, command: GraphLink['command'] = 'input') {
     if (source !== target && nodes.some(node => node.id === source) && nodes.some(node => node.id === target)) {
-      setLinks(current => current.some(link => link.source === source && link.target === target) ? current : [...current, { id: crypto.randomUUID(), source, target, command: 'input' }]);
+      const branch = nodes.find(node => node.id === source)?.kind === 'human-approval' ? command === 'deny' ? 'deny' : 'approve' : 'input';
+      setLinks(current => current.some(link => link.source === source && link.target === target && link.command === branch) ? current : [...current, { id: crypto.randomUUID(), source, target, command: branch }]);
     }
     portDragRef.current = null;
     setDraft(null);
@@ -549,13 +559,13 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     return port && canvasRef.current?.contains(port) && id !== source && nodes.some(node => node.id === id) ? id! : null;
   }
 
-  function startConnection(event: PointerEvent<HTMLButtonElement>, node: GraphNode) {
+  function startConnection(event: PointerEvent<HTMLButtonElement>, node: GraphNode, command: GraphLink['command']) {
     event.stopPropagation();
     if (event.button !== 0 || !event.isPrimary) return;
     event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
-    portDragRef.current = { source: node.id, pointerId: event.pointerId };
-    setDraft({ source: node.id, point: { x: node.x + nodeWidth, y: node.y + nodeWidth / 2 }, target: null });
+    portDragRef.current = { source: node.id, command, pointerId: event.pointerId };
+    setDraft({ source: node.id, command, point: outputPoint(node, command), target: null });
   }
 
   function moveConnection(event: PointerEvent<HTMLButtonElement>, source: string) {
@@ -563,14 +573,14 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     if (portDragRef.current?.pointerId !== event.pointerId || portDragRef.current.source !== source) return;
     const box = canvasRef.current?.getBoundingClientRect();
     if (!box) return;
-    setDraft({ source, point: { x: event.clientX - box.left - pan.x, y: event.clientY - box.top - pan.y }, target: targetAt(event.clientX, event.clientY, source) });
+    setDraft({ source, command: portDragRef.current.command, point: { x: event.clientX - box.left - pan.x, y: event.clientY - box.top - pan.y }, target: targetAt(event.clientX, event.clientY, source) });
   }
 
   function endConnection(event: PointerEvent<HTMLButtonElement>, source: string) {
     event.stopPropagation();
     if (portDragRef.current?.pointerId !== event.pointerId) return;
     const target = targetAt(event.clientX, event.clientY, source);
-    if (target) connect(source, target);
+    if (target) connect(source, target, portDragRef.current.command);
     else { portDragRef.current = null; setDraft(null); }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
@@ -639,17 +649,19 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
             const source = nodes.find(node => node.id === link.source);
             const target = nodes.find(node => node.id === link.target);
             if (!source || !target) return null;
-            const d = linkPath(source, target);
+            const d = linkPath(source, target, link.command);
             const labelX = (source.x + nodeWidth + target.x) / 2;
-            const labelY = (source.y + target.y + nodeWidth) / 2;
+            const labelY = (outputPoint(source, link.command).y + target.y + nodeWidth / 2) / 2;
+            const label = source.kind === 'human-approval' ? link.command === 'deny' ? 'Deny' : 'Approve' : 'input';
+            const labelWidth = label === 'Approve' ? 58 : 46;
             return <ContextMenu key={link.id}><ContextMenuTrigger render={<g/>} className={selectedLink === link.id ? 'workflow-graph-link is-selected' : 'workflow-graph-link'} onContextMenu={() => setSelectedLink(link.id)}>
-              <path d={d} className="connection-hit" role="button" tabIndex={0} aria-label={`Connection from ${source.name} to ${target.name}. Press Delete to remove.`} onPointerDown={event => event.stopPropagation()} onClick={event => { event.currentTarget.focus(); setSelectedLink(link.id); }} onKeyDown={event => { if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); event.stopPropagation(); if (!event.repeat) { setLinks(current => current.filter(item => item.id !== link.id)); setSelectedLink(null); } } else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedLink(link.id); } }}/>
+              <path d={d} className="connection-hit" role="button" tabIndex={0} aria-label={`${label} connection from ${source.name} to ${target.name}. Press Delete to remove.`} onPointerDown={event => event.stopPropagation()} onClick={event => { event.currentTarget.focus(); setSelectedLink(link.id); }} onKeyDown={event => { if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); event.stopPropagation(); if (!event.repeat) { setLinks(current => current.filter(item => item.id !== link.id)); setSelectedLink(null); } } else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedLink(link.id); } }}/>
               <path d={d} className="connection-line" markerEnd="url(#workflow-link-arrow)"/>
               <path d={d} className="connection-motion"/>
-              <g className="workflow-edge-label" aria-hidden="true" transform={`translate(${labelX} ${labelY})`}><rect x="-23" y="-10" width="46" height="20" rx="5"/><text textAnchor="middle" dominantBaseline="central">{link.command}</text></g>
-            </ContextMenuTrigger><ContextMenuContent className="node-context-menu workflow-edge-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}><ContextMenuItem onClick={() => setLinks(current => current.map(item => item.id === link.id ? { ...item, command: 'input' } : item))}><Check/>Input{link.command === 'input' && <span className="node-delete-shortcut">Selected</span>}</ContextMenuItem></ContextMenuContent></ContextMenu>;
+              <g className="workflow-edge-label" aria-hidden="true" transform={`translate(${labelX} ${labelY})`}><rect x={-labelWidth / 2} y="-10" width={labelWidth} height="20" rx="5"/><text textAnchor="middle" dominantBaseline="central">{label}</text></g>
+            </ContextMenuTrigger><ContextMenuContent className="node-context-menu workflow-edge-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>{source.kind === 'human-approval' ? (['approve', 'deny'] as const).map(branch => <ContextMenuItem key={branch} onClick={() => setLinks(current => current.some(item => item.id !== link.id && item.source === link.source && item.target === link.target && item.command === branch) ? current : current.map(item => item.id === link.id ? { ...item, command: branch } : item))}><Check/>{branch === 'approve' ? 'Approve' : 'Deny'}{link.command === branch && <span className="node-delete-shortcut">Selected</span>}</ContextMenuItem>) : <ContextMenuItem><Check/>Input<span className="node-delete-shortcut">Selected</span></ContextMenuItem>}</ContextMenuContent></ContextMenu>;
           })}
-          {draft && (() => { const source = nodes.find(node => node.id === draft.source); const target = draft.target ? nodes.find(node => node.id === draft.target) : null; return source ? <path className={`connection-preview${target ? ' is-ready' : ''}`} d={curve({ x: source.x + nodeWidth, y: source.y + nodeWidth / 2 }, target ? { x: target.x, y: target.y + nodeWidth / 2 } : draft.point)}/> : null; })()}
+          {draft && (() => { const source = nodes.find(node => node.id === draft.source); const target = draft.target ? nodes.find(node => node.id === draft.target) : null; return source ? <path className={`connection-preview${target ? ' is-ready' : ''}`} d={curve(outputPoint(source, draft.command), target ? { x: target.x, y: target.y + nodeWidth / 2 } : draft.point)}/> : null; })()}
         </svg>
         {nodes.map(node => <ContextMenu key={node.id}><ContextMenuTrigger className="workflow-graph-node-group" style={{ left: node.x, top: node.y, zIndex: 4 + node.number % 3 }}><button
           type="button" className="canvas-node workflow-graph-node"
@@ -672,8 +684,8 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
             } : item));
           }}
         >{(() => { const Icon = iconOptions.find(option => option.type === node.icon)?.icon || Workflow; return <Icon size={28} strokeWidth={1.6} aria-hidden="true"/>; })()}</button><span className="workflow-graph-node-label node-name" title={node.name}>{node.name}</span><span className={`node-status${node.active ? ' is-active' : ''}`}><span aria-hidden="true"/>{!node.active ? 'Inactive' : node.kind === 'agent-handoff' ? node.handoffMode === 'receive' ? 'Receive' : 'Send' : 'Active'}</span>
-          <button type="button" className={`node-port workflow-graph-port workflow-graph-port-input${draft && draft.source !== node.id ? ' can-connect' : ''}${draft?.target === node.id ? ' is-target' : ''}${links.some(link => link.target === node.id) ? ' is-connected' : ''}`} data-workflow-input={node.id} aria-label={`Input of ${node.name}`} title="Input — drop a connection here" onPointerDown={event => event.stopPropagation()} onClick={() => { if (draft) connect(draft.source, node.id); }}/>
-          <button type="button" className={`node-port workflow-graph-port workflow-graph-port-output${links.some(link => link.source === node.id) ? ' is-connected' : ''}`} aria-label={`Connect from ${node.name}`} title="Output — drag to another node's input" onPointerDown={event => startConnection(event, node)} onPointerMove={event => moveConnection(event, node.id)} onPointerUp={event => endConnection(event, node.id)} onPointerCancel={event => { event.stopPropagation(); portDragRef.current = null; setDraft(null); }} onLostPointerCapture={event => { event.stopPropagation(); if (portDragRef.current) { portDragRef.current = null; setDraft(null); } }} onClick={event => { if (event.detail === 0) setDraft({ source: node.id, point: { x: node.x + 130, y: node.y + nodeWidth / 2 }, target: null }); }}/>
+          <button type="button" className={`node-port workflow-graph-port workflow-graph-port-input${draft && draft.source !== node.id ? ' can-connect' : ''}${draft?.target === node.id ? ' is-target' : ''}${links.some(link => link.target === node.id) ? ' is-connected' : ''}`} data-workflow-input={node.id} aria-label={`Input of ${node.name}`} title="Input — drop a connection here" onPointerDown={event => event.stopPropagation()} onClick={() => { if (draft) connect(draft.source, node.id, draft.command); }}/>
+          {(node.kind === 'human-approval' ? ['approve', 'deny'] as const : ['input'] as const).map(command => <button key={command} type="button" className={`node-port workflow-graph-port workflow-graph-port-output${node.kind === 'human-approval' ? ` is-${command}` : ''}${links.some(link => link.source === node.id && link.command === command) ? ' is-connected' : ''}`} aria-label={`${command === 'input' ? 'Connect' : command === 'approve' ? 'Approve' : 'Deny'} from ${node.name}`} title={`${command === 'input' ? 'Output' : command === 'approve' ? 'Approve' : 'Deny'} — drag to another node's input`} onPointerDown={event => startConnection(event, node, command)} onPointerMove={event => moveConnection(event, node.id)} onPointerUp={event => endConnection(event, node.id)} onPointerCancel={event => { event.stopPropagation(); portDragRef.current = null; setDraft(null); }} onLostPointerCapture={event => { event.stopPropagation(); if (portDragRef.current) { portDragRef.current = null; setDraft(null); } }} onClick={event => { if (event.detail === 0) { const point = outputPoint(node, command); setDraft({ source: node.id, command, point: { x: point.x + 66, y: point.y }, target: null }); } }}/>) }
         </ContextMenuTrigger><ContextMenuContent className="node-context-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
           {node.kind === 'context' && <ContextMenuItem onClick={() => { setFileError(''); setEditingNode(node.id); }}><FileText/>Edit context</ContextMenuItem>}
           {node.kind === 'workflow' && <ContextMenuItem onClick={() => setEditingWorkflow(node.id)}><Workflow/>Edit task</ContextMenuItem>}
