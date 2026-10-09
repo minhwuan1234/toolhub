@@ -159,6 +159,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [outputDraft, setOutputDraft] = useState('');
   const [instructionDraft, setInstructionDraft] = useState('');
   const [inputDraft, setInputDraft] = useState('');
+  const [inputSelectionError, setInputSelectionError] = useState('');
   const [inputTagPicker, setInputTagPicker] = useState<{ start: number; query: string } | null>(null);
   const [inputTagIndex, setInputTagIndex] = useState(0);
   const [outputError, setOutputError] = useState('');
@@ -419,6 +420,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   function openAgentOutput(node: GraphNode) {
     setInstructionDraft(node.instructionPrompt);
     setInputDraft(node.explicitInput);
+    setInputSelectionError('');
     setOutputDraft(node.structuredOutput || defaultStructuredOutputSchema);
     setOutputError('');
     setOutputView('preview');
@@ -799,6 +801,8 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           const validation = validateStructuredOutput(outputDraft);
           const registry = buildConnectedTagRegistry(node.id, nodes, links);
           const available = [...registry.definitions.values()];
+          const selectedTags = new Set(Array.from(inputDraft.matchAll(/\/([^/*\n]{1,40})\//g), match => match[1].trim().toLocaleLowerCase('en-US')));
+          const missingTags = available.filter(tag => !registry.conflicts.has(tag.name.toLocaleLowerCase('en-US')) && !selectedTags.has(tag.name.toLocaleLowerCase('en-US')));
           const suggestions = inputTagPicker ? available.filter(tag => tag.name.toLowerCase().includes(inputTagPicker.query.trim().toLowerCase()) && !registry.conflicts.has(tag.name.toLocaleLowerCase('en-US'))).slice(0, 8) : [];
           const inputCheck = resolveConnectedInput(node.id, inputDraft, nodes, links);
           const files = outputFiles(node.lastOutput);
@@ -806,13 +810,21 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           const outputText = selectedView === 'json' ? node.lastOutput : selectedView === 'preview' ? '' : files?.[selectedView] || '';
           return <div className="workflow-agent-layout"><div className="agent-card-form workflow-agent-form">
             <div className="agent-card-field"><label htmlFor="workflow-agent-instruction">Instruction prompt</label><textarea id="workflow-agent-instruction" value={instructionDraft} maxLength={4000} onChange={event => { setInstructionDraft(event.target.value); setOutputError(''); }}/></div>
-            <div className="agent-card-field"><label htmlFor="workflow-agent-input">Explicit input</label><div className="workflow-task-editor"><div ref={explicitInputMirrorRef} className="workflow-context-syntax-mirror" aria-hidden="true">{renderContextSyntax(inputDraft)}</div><textarea ref={explicitInputRef} id="workflow-agent-input" value={inputDraft} maxLength={4000} onChange={event => { setInputDraft(event.target.value); setInputTagPicker(openTagAt(event.target.value, event.target.selectionStart)); setInputTagIndex(0); setOutputError(''); }} onSelect={event => setInputTagPicker(openTagAt(event.currentTarget.value, event.currentTarget.selectionStart))} onScroll={event => { if (explicitInputMirrorRef.current) explicitInputMirrorRef.current.scrollTop = event.currentTarget.scrollTop; }} onKeyDown={event => {
+            <div className="agent-card-field"><div className="workflow-agent-input-heading"><label htmlFor="workflow-agent-input">Explicit input</label>{available.length > 0 && <button type="button" disabled={missingTags.length === 0} onClick={() => {
+              const addition = missingTags.map(tag => `/${tag.name}/`).join(' ');
+              const next = `${inputDraft.trimEnd()}${inputDraft.trim() ? '\n' : ''}${addition}`;
+              if (next.length > 4000) { setInputSelectionError('All connected tags exceed the 4,000 character input limit.'); return; }
+              setInputDraft(next);
+              setInputTagPicker(null);
+              setInputSelectionError('');
+              setOutputError('');
+            }}>Select all</button>}</div><div className="workflow-task-editor"><div ref={explicitInputMirrorRef} className="workflow-context-syntax-mirror" aria-hidden="true">{renderContextSyntax(inputDraft)}</div><textarea ref={explicitInputRef} id="workflow-agent-input" value={inputDraft} maxLength={4000} onChange={event => { setInputDraft(event.target.value); setInputSelectionError(''); setInputTagPicker(openTagAt(event.target.value, event.target.selectionStart)); setInputTagIndex(0); setOutputError(''); }} onSelect={event => setInputTagPicker(openTagAt(event.currentTarget.value, event.currentTarget.selectionStart))} onScroll={event => { if (explicitInputMirrorRef.current) explicitInputMirrorRef.current.scrollTop = event.currentTarget.scrollTop; }} onKeyDown={event => {
               if (!inputTagPicker || !suggestions.length) return;
               if (event.key === 'Escape') { event.preventDefault(); setInputTagPicker(null); }
               if (event.key === 'ArrowDown') { event.preventDefault(); setInputTagIndex(index => (index + 1) % suggestions.length); }
               if (event.key === 'ArrowUp') { event.preventDefault(); setInputTagIndex(index => (index + suggestions.length - 1) % suggestions.length); }
               if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); selectInputTag(suggestions[inputTagIndex]?.name || suggestions[0].name); }
-            }}/></div></div>
+            }}/></div>{inputSelectionError && <small role="alert" className="workflow-task-error">{inputSelectionError}</small>}</div>
             {inputTagPicker && suggestions.length > 0 && <div className="workflow-task-suggestions" role="listbox" aria-label="Connected tags">{suggestions.map((tag, index) => <button type="button" role="option" aria-selected={index === inputTagIndex} key={tag.id} onMouseDown={event => event.preventDefault()} onClick={() => selectInputTag(tag.name)}>{tag.name}</button>)}</div>}
             {available.length > 0 && <details className="workflow-agent-tags"><summary>Connected tags <span>{available.length}</span></summary><div className="workflow-task-tags" aria-label="Connected context tags">{available.map(tag => <button type="button" key={tag.id} disabled={registry.conflicts.has(tag.name.toLocaleLowerCase('en-US'))} onClick={() => {
               const input = explicitInputRef.current;

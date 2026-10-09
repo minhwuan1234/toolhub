@@ -823,6 +823,10 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .workflow-agent-layout { display:flex; flex:1; min-height:0; }
 .workflow-agent-form.agent-card-form { gap:14px; }
 .workflow-agent-form.agent-card-form { flex:0 0 50%; width:50%; border-right:1px solid #e8e7e3; }
+.workflow-agent-input-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.workflow-agent-input-heading button { padding:0; border:0; background:transparent; color:#57564f; font:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+.workflow-agent-input-heading button:hover:not(:disabled) { color:#37352f; text-decoration:underline; }
+.workflow-agent-input-heading button:disabled { color:#a19f99; cursor:default; }
 .workflow-agent-tags { border:1px solid #e8e7e3; border-radius:8px; }
 .workflow-agent-tags summary { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; color:#57564f; font-size:12px; font-weight:600; cursor:pointer; list-style:none; }
 .workflow-agent-tags summary::-webkit-details-marker { display:none; }
