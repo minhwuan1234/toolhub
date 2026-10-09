@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { resolveGraphAgentInput, type ContextTagSource, type ContextInputLink } from '@/lib/context-tags';
+import { buildConnectedTagRegistry, resolveGraphAgentInput, type ContextTagSource, type ContextInputLink } from '@/lib/context-tags';
 import { validateStructuredOutput } from '@/lib/structured-output';
 import { runAgent } from '@/lib/agent-team';
 import { getDatabase } from './database';
@@ -94,7 +94,12 @@ export async function saveDesignerGraphOutput(nodeId: string, content: string): 
 
 export function graphAgentTask(node: DesignerGraphNode, document: DesignerGraphDocument, fallbackTask: string): string {
   const hasWorkflowTask = document.links.some(link => link.target === node.id && link.command === 'input' && document.nodes.some(item => item.id === link.source && item.kind === 'workflow' && item.active !== false && item.taskText?.trim()));
-  return node.explicitInput?.trim() || (hasWorkflowTask ? '' : fallbackTask);
+  if (node.explicitInput?.trim()) return node.explicitInput.trim();
+  if (hasWorkflowTask || !fallbackTask.trim()) return '';
+  const registry = buildConnectedTagRegistry(node.id, document.nodes, document.links);
+  const styleTags = ['Screen.Shell', 'Navigation.Topbar', 'Layout.Content', 'Color.Background', 'Color.Surface', 'Color.Text', 'Color.Border', 'Type.Family', 'Type.PageTitle', 'Surface.Panel', 'Button.Base', 'Responsive.Shell']
+    .filter(name => registry.definitions.has(name.toLowerCase()) && !registry.conflicts.has(name.toLowerCase()));
+  return [fallbackTask.trim(), styleTags.length ? `Use these connected Toolhub design rules for the screen: ${styleTags.map(name => `/${name}/`).join(' ')}` : ''].filter(Boolean).join('\n\n');
 }
 
 export async function runStoredGraphAgent(nodeId: string, fallbackTask = '') {
