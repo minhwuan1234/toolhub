@@ -14,6 +14,7 @@ import { agentLinksChangedEvent, agentOutputsChangedEvent, readAgentLinks, readA
 import { defaultStructuredOutputSchema, validateStructuredOutput } from '@/lib/structured-output';
 import { sampleSingleScreenBrief } from '@/lib/sample-screen-brief';
 import { initialUiScreenContextHashes, uiScreenContextCatalog, uiScreenContextHash, type UiScreenContext } from '@/lib/ui-screen-context-catalog';
+import { graphPreviewDocument } from '@/lib/graph-preview';
 
 type ContextFile = { id: string; name: string; content: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
@@ -151,7 +152,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [inputTagPicker, setInputTagPicker] = useState<{ start: number; query: string } | null>(null);
   const [inputTagIndex, setInputTagIndex] = useState(0);
   const [outputError, setOutputError] = useState('');
-  const [outputView, setOutputView] = useState<'html' | 'css' | 'js' | 'json'>('html');
+  const [outputView, setOutputView] = useState<'preview' | 'html' | 'css' | 'js' | 'json'>('preview');
   const [runningAgent, setRunningAgent] = useState(false);
   const [taskTagPicker, setTaskTagPicker] = useState<{ start: number; query: string } | null>(null);
   const [taskTagIndex, setTaskTagIndex] = useState(0);
@@ -405,7 +406,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     setInputDraft(node.explicitInput);
     setOutputDraft(node.structuredOutput || defaultStructuredOutputSchema);
     setOutputError('');
-    setOutputView('html');
+    setOutputView('preview');
     setInputTagPicker(null);
     setEditingAgent(node.id);
   }
@@ -740,7 +741,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           const inputCheck = resolveConnectedInput(node.id, inputDraft, nodes, links);
           const files = outputFiles(node.lastOutput);
           const selectedView = files ? outputView : 'json';
-          const outputText = selectedView === 'json' ? node.lastOutput : files?.[selectedView] || '';
+          const outputText = selectedView === 'json' ? node.lastOutput : selectedView === 'preview' ? '' : files?.[selectedView] || '';
           return <div className="workflow-agent-layout"><div className="agent-card-form workflow-agent-form">
             <div className="agent-card-field"><label htmlFor="workflow-agent-instruction">Instruction prompt</label><textarea id="workflow-agent-instruction" value={instructionDraft} maxLength={4000} onChange={event => { setInstructionDraft(event.target.value); setOutputError(''); }}/></div>
             <div className="agent-card-field"><label htmlFor="workflow-agent-input">Explicit input</label><div className="workflow-task-editor"><div ref={explicitInputMirrorRef} className="workflow-context-syntax-mirror" aria-hidden="true">{renderContextSyntax(inputDraft)}</div><textarea ref={explicitInputRef} id="workflow-agent-input" value={inputDraft} maxLength={4000} onChange={event => { setInputDraft(event.target.value); setInputTagPicker(openTagAt(event.target.value, event.target.selectionStart)); setInputTagIndex(0); setOutputError(''); }} onSelect={event => setInputTagPicker(openTagAt(event.currentTarget.value, event.currentTarget.selectionStart))} onScroll={event => { if (explicitInputMirrorRef.current) explicitInputMirrorRef.current.scrollTop = event.currentTarget.scrollTop; }} onKeyDown={event => {
@@ -769,11 +770,11 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
             }}>Save</button><button type="button" disabled={runningAgent || !node.active || !validateStructuredOutput(node.structuredOutput).ok || outputDraft !== node.structuredOutput || instructionDraft !== node.instructionPrompt || inputDraft !== node.explicitInput || !inputCheck.ok} onClick={() => void runGraphAgent(node)}>{runningAgent ? 'Running…' : 'Run'}</button></div>
           </div><section className="workflow-agent-output-panel" aria-label="AI Agent output">
             <header className="workflow-agent-output-heading"><strong>Output</strong>{node.lastOutput && <span>Last successful run</span>}</header>
-            {files && <div className="workflow-agent-output-tabs" role="group" aria-label="Output file">{(['html', 'css', 'js', 'json'] as const).map(view => <button type="button" aria-pressed={selectedView === view} key={view} onClick={() => setOutputView(view)}>{view === 'json' ? 'JSON' : `${view === 'html' ? 'index' : view === 'css' ? 'styles' : 'script'}.${view}`}</button>)}</div>}
+            {files && <div className="workflow-agent-output-tabs" role="group" aria-label="Output file">{(['preview', 'html', 'css', 'js', 'json'] as const).map(view => <button type="button" aria-pressed={selectedView === view} key={view} onClick={() => setOutputView(view)}>{view === 'preview' ? 'Preview' : view === 'json' ? 'JSON' : `${view === 'html' ? 'index' : view === 'css' ? 'styles' : 'script'}.${view}`}</button>)}</div>}
             <div className="workflow-agent-output-body">
               {outputError && <div role="alert" className="workflow-agent-output-error">{outputError}</div>}
               {runningAgent && <div role="status" className="workflow-agent-output-pending">Running agent…</div>}
-              {node.lastOutput ? <pre key={selectedView} className="workflow-agent-output-code">{outputText}</pre> : !runningAgent && <div className="workflow-agent-output-empty">Run this node to see its output.</div>}
+              {node.lastOutput ? selectedView === 'preview' && files ? <iframe className="workflow-agent-output-preview" title="UI/UX screen preview" sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={graphPreviewDocument(files)}/> : <pre key={selectedView} className="workflow-agent-output-code">{outputText}</pre> : !runningAgent && <div className="workflow-agent-output-empty">Run this node to see its output.</div>}
             </div>
           </section></div>;
         })()}

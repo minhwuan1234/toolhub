@@ -16,6 +16,8 @@ The UI/UX graph now saves its nodes, links, context tags, and AI Agent configura
 
 In Toolhub chat, an admin can also ask Auto or UI/UX to run the UI/UX graph from the saved Test document. This routes directly to the active AI Agent connected to a Receive handoff, displays the result in chat, and saves it to the graph Output panel. If that node has no Explicit input or connected Workflow task, the chat request supplies the task. Other chat requests still use the selected agent or team. If more than one active AI Agent receives the Test document, the chat asks for a specific node instead of choosing one silently.
 
+The AI Agent Output panel includes a Preview tab for structured outputs containing `html`, `css`, and `js`. It combines the three files in an isolated iframe so the screen can be viewed and interacted with without publishing it. The preview blocks network requests and access to the Toolhub page; external assets and API calls in generated code will not load there.
+
 ## Railway setup
 
 In the **toolhub** service's Variables tab (not the Postgres service), configure:

@@ -845,6 +845,7 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .workflow-agent-output-tabs button:focus-visible { outline:2px solid #37352f; outline-offset:-3px; }
 .workflow-agent-output-body { display:flex; flex:1; flex-direction:column; min-height:0; overflow:auto; }
 .workflow-agent-output-code { flex:1; margin:0; padding:18px 20px; color:#37352f; font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre; overflow:auto; tab-size:2; }
+.workflow-agent-output-preview { display:block; flex:1; width:100%; min-height:0; border:0; background:#fff; }
 .workflow-agent-output-empty { display:grid; flex:1; place-items:center; padding:24px; color:#91918b; font-size:13px; text-align:center; }
 .workflow-agent-output-error { margin:16px 20px 0; padding:10px 12px; border:1px solid #f0c5bd; border-radius:8px; background:#fff4f2; color:#a13427; font-size:12px; }
 .workflow-agent-output-pending { padding:14px 20px 0; color:#787774; font-size:12px; }
