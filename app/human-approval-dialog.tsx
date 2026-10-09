@@ -66,7 +66,6 @@ export function HumanApprovalNodeDialog({ nodeId, nodeName, upstreamOutput, upst
       <header className="inspector-heading"><span className="inspector-icon"><CircleCheck size={21}/></span><DialogTitle>{nodeName}</DialogTitle>{visibleApproval && <span className={`human-approval-status is-${visibleApproval.status}`}>{visibleApproval.status === 'pending' ? 'Pending' : visibleApproval.status === 'approved' ? 'Approved' : visibleApproval.status === 'denied' ? 'Denied' : 'Not submitted'}</span>}</header>
       <DialogDescription className="sr-only">Latest output and decision for this Human Approval node.</DialogDescription>
       {visibleApproval ? <ApprovalOutput approval={visibleApproval}/> : <output className="human-approval-empty">{loading ? 'Loading output…' : error || 'No output has reached this node yet.'}</output>}
-      {visibleApproval?.status === 'upstream-output' && <div className="human-approval-review-feedback">This is the connected node&apos;s latest output. Press Play to submit a new run for approval.</div>}
       {visibleApproval?.status === 'denied' && visibleApproval.feedback && <div className="human-approval-review-feedback"><strong>Feedback</strong><p>{visibleApproval.feedback}</p></div>}
     </DialogContent>
   </Dialog>;

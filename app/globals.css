@@ -851,7 +851,7 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .workflow-agent-output-empty { display:grid; flex:1; place-items:center; padding:24px; color:#91918b; font-size:13px; text-align:center; }
 .workflow-agent-output-error { margin:16px 20px 0; padding:10px 12px; border:1px solid #f0c5bd; border-radius:8px; background:#fff4f2; color:#a13427; font-size:12px; }
 .workflow-agent-output-pending { padding:14px 20px 0; color:#787774; font-size:12px; }
-.human-approval-dialog.node-inspector.node-inspector-agent[data-slot='dialog-content'] { gap:0; padding:0; overflow:hidden; width:min(72vw,1100px); height:min(80svh,calc(100svh - 24px)); }
+.human-approval-dialog.node-inspector.node-inspector-agent[data-slot='dialog-content'] { gap:0; padding:0; overflow:hidden; width:80vw; height:80vh; }
 .human-approval-content { display:flex; flex:1; flex-direction:column; min-height:0; padding:20px 24px 0; }
 .human-approval-source { padding-bottom:14px; color:#787774; font-size:13px; }
 .human-approval-source strong { color:#37352f; font-weight:600; }
