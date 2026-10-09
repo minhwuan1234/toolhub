@@ -377,7 +377,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       const row = branchIndex % 4;
       if (current.length >= 100) return current;
       return [...current, {
-        id, number, kind, name: kind === 'context' ? `Context ${number}` : kind === 'agent' ? `AI Agent ${number}` : kind === 'tool-calling' ? `Tool Calling ${number}` : kind === 'human-approval' ? `Human Approval ${number}` : kind === 'skill' ? `Skill ${number}` : kind === 'agent-handoff' ? `Agent Handoff ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'workflow' || kind === 'context' || kind === 'agent-handoff', contextText: '', contextFiles: [], contextTags: [], handoffMode: 'receive', testDocument: kind === 'agent-handoff' ? sampleSingleScreenBrief : '', useTestDocument: kind === 'agent-handoff', taskText: '', instructionPrompt: '', explicitInput: '', structuredOutput: '', lastOutput: '',
+        id, number, kind, name: kind === 'context' ? `Context ${number}` : kind === 'agent' ? `AI Agent ${number}` : kind === 'tool-calling' ? `Tool Calling ${number}` : kind === 'human-approval' ? `Human Approval ${number}` : kind === 'skill' ? `Skill ${number}` : kind === 'agent-handoff' ? `Agent Handoff ${number}` : `Node ${number}`, icon: kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'workflow' || kind === 'context' || kind === 'agent-handoff' || kind === 'human-approval', contextText: '', contextFiles: [], contextTags: [], handoffMode: 'receive', testDocument: kind === 'agent-handoff' ? sampleSingleScreenBrief : '', useTestDocument: kind === 'agent-handoff', taskText: '', instructionPrompt: '', explicitInput: '', structuredOutput: '', lastOutput: '',
         x: Math.max(8, position?.x ?? (current.length === 0 ? 105 : 310 + column * 190) - pan.x),
         y: Math.max(8, position?.y ?? (current.length === 0 ? 206 : 55 + row * 112 + (column % 2) * 20) - pan.y),
       }];
@@ -439,6 +439,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       const content = JSON.stringify(JSON.parse(data.result.content) as unknown, null, 2);
       updateNode(node.id, { lastOutput: content.slice(0, 200000) });
       saveAgentOutput({ agentId: 'designer', runId: crypto.randomUUID(), content, createdAt: new Date().toISOString() });
+      window.dispatchEvent(new Event('toolhub:graph-output'));
       window.dispatchEvent(new Event('toolhub:agent-api-spend'));
     } catch (error) {
       setOutputError(error instanceof Error ? error.message : 'Unable to run the AI Agent.');

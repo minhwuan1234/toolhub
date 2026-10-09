@@ -87,10 +87,59 @@ export async function getDesignerGraphOutputChanges(since: string): Promise<{ ou
 
 export async function saveDesignerGraphOutput(nodeId: string, content: string): Promise<void> {
   if (!nodeId || nodeId.length > 100 || content.length > 200000) throw new Error('Graph output exceeds its limit.');
-  await getDatabase().query(
-    'INSERT INTO designer_graph_outputs (node_id,content) VALUES ($1,$2) ON CONFLICT (node_id) DO UPDATE SET content=EXCLUDED.content,updated_at=now()',
-    [nodeId, content],
-  );
+  const client = await getDatabase().connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('INSERT INTO designer_graph_outputs (node_id,content) VALUES ($1,$2) ON CONFLICT (node_id) DO UPDATE SET content=EXCLUDED.content,updated_at=now()', [nodeId, content]);
+    const { rows } = await client.query<{ document: DesignerGraphDocument }>('SELECT document FROM designer_graphs WHERE id=$1', [graphId]);
+    if (rows[0]) {
+      const graph = validateDesignerGraph(rows[0].document);
+      const source = graph.nodes.find(node => node.id === nodeId);
+      if (source) {
+        for (const link of graph.links.filter(link => link.source === nodeId && link.command === 'input')) {
+          const approval = graph.nodes.find(node => node.id === link.target && node.kind === 'human-approval' && node.active !== false);
+          if (approval) await client.query('INSERT INTO designer_graph_approvals (id,source_node_id,approval_node_id,source_name,output) VALUES ($1,$2,$3,$4,$5)', [randomUUID(), nodeId, approval.id, source.name, content]);
+        }
+      }
+    }
+    await client.query('COMMIT');
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
+}
+
+export type GraphApproval = { id: string; source_node_id: string; approval_node_id: string; source_name: string; output: string; created_at: string };
+
+export async function getPendingGraphApproval(): Promise<GraphApproval | null> {
+  const { rows } = await getDatabase().query<GraphApproval>('SELECT id, source_node_id, approval_node_id, source_name, output, created_at FROM designer_graph_approvals WHERE status=$1 ORDER BY created_at, id LIMIT 1', ['pending']);
+  return rows[0] || null;
+}
+
+export async function decideGraphApproval(id: string, decision: 'approved' | 'denied', feedback: string): Promise<{ targets: string[]; output: string }> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Invalid approval ID.');
+  if (decision === 'denied' && !feedback.trim()) throw new Error('Feedback is required when denying.');
+  if (feedback.length > 4000) throw new Error('Feedback is too long.');
+  const client = await getDatabase().connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: approvals } = await client.query<{ approval_node_id: string; output: string }>('SELECT approval_node_id, output FROM designer_graph_approvals WHERE id=$1 AND status=$2 FOR UPDATE', [id, 'pending']);
+    if (!approvals[0]) throw new Error('This approval has already been handled.');
+    const { rows } = await client.query<{ document: DesignerGraphDocument }>('SELECT document FROM designer_graphs WHERE id=$1', [graphId]);
+    const graph = rows[0] ? validateDesignerGraph(rows[0].document) : null;
+    const targets = graph?.links.filter(link => link.source === approvals[0].approval_node_id && link.command === (decision === 'approved' ? 'approve' : 'deny')).map(link => link.target) || [];
+    await client.query('UPDATE designer_graph_approvals SET status=$2, feedback=$3, branch_targets=$4, decided_at=now() WHERE id=$1', [id, decision, decision === 'denied' ? feedback.trim() : null, JSON.stringify(targets)]);
+    await client.query('COMMIT');
+    return { targets, output: approvals[0].output };
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { client.release(); }
+}
+
+export async function getUnconsumedGraphFeedback(nodeId: string): Promise<{ id: string; feedback: string } | null> {
+  const { rows } = await getDatabase().query<{ id: string; feedback: string }>('SELECT id, feedback FROM designer_graph_approvals WHERE source_node_id=$1 AND status=$2 AND feedback_consumed_at IS NULL ORDER BY decided_at DESC LIMIT 1', [nodeId, 'denied']);
+  return rows[0] || null;
+}
+
+export async function markGraphFeedbackConsumed(id: string): Promise<void> {
+  await getDatabase().query('UPDATE designer_graph_approvals SET feedback_consumed_at=now() WHERE id=$1 AND feedback_consumed_at IS NULL', [id]);
 }
 
 export function graphAgentTask(node: DesignerGraphNode, document: DesignerGraphDocument, fallbackTask: string): string {
@@ -103,7 +152,7 @@ export function graphAgentTask(node: DesignerGraphNode, document: DesignerGraphD
   return [fallbackTask.trim(), styleTags.length ? `Use these connected Toolhub design rules for the screen: ${styleTags.map(name => `/${name}/`).join(' ')}` : ''].filter(Boolean).join('\n\n');
 }
 
-export async function runStoredGraphAgent(nodeId: string, fallbackTask = '') {
+export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', approvedOutput = '') {
   const { document } = await getDesignerGraph();
   if (!document) throw new Error('Save the UI/UX graph before running it through MCP.');
   const node = document.nodes.find(item => item.id === nodeId);
@@ -112,10 +161,15 @@ export async function runStoredGraphAgent(nodeId: string, fallbackTask = '') {
   const format = validateStructuredOutput(node.structuredOutput);
   if (!format.ok) throw new Error(format.error);
   const handoffData = Object.fromEntries(document.nodes.filter(item => item.kind === 'agent-handoff' && item.active !== false && item.handoffMode === 'receive' && item.useTestDocument).map(item => [item.id, item.testDocument || '']));
-  const input = resolveGraphAgentInput(node.id, graphAgentTask(node, document, fallbackTask), document.nodes, document.links, handoffData);
+  const task = graphAgentTask(node, document, fallbackTask || (approvedOutput ? 'Continue the workflow using the approved output from the previous node.' : ''));
+  const input = resolveGraphAgentInput(node.id, task, document.nodes, document.links, handoffData);
   if (!input.ok) throw new Error(input.error);
-  const result = await runAgent('designer', input.content, '', { outputSchema: format.schema, additionalInstructions: node.instructionPrompt });
+  if (approvedOutput.length > 99000) throw new Error('Approved output exceeds the next agent context limit.');
+  const feedback = await getUnconsumedGraphFeedback(node.id);
+  const message = feedback ? `${input.content}\n\nHuman review feedback for this revision:\n${feedback.feedback}` : input.content;
+  const result = await runAgent('designer', message, approvedOutput ? `Approved output from the previous graph node:\n${approvedOutput}` : '', { outputSchema: format.schema, additionalInstructions: node.instructionPrompt, graphApprovedContext: Boolean(approvedOutput) });
   const content = JSON.stringify(JSON.parse(result.content) as unknown, null, 2);
   await saveDesignerGraphOutput(node.id, content);
+  if (feedback) await markGraphFeedbackConsumed(feedback.id);
   return { node_id: node.id, run_id: randomUUID(), result: { ...result, content } };
 }

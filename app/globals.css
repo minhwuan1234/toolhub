@@ -851,6 +851,25 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .workflow-agent-output-empty { display:grid; flex:1; place-items:center; padding:24px; color:#91918b; font-size:13px; text-align:center; }
 .workflow-agent-output-error { margin:16px 20px 0; padding:10px 12px; border:1px solid #f0c5bd; border-radius:8px; background:#fff4f2; color:#a13427; font-size:12px; }
 .workflow-agent-output-pending { padding:14px 20px 0; color:#787774; font-size:12px; }
+.human-approval-dialog.node-inspector.node-inspector-agent[data-slot='dialog-content'] { gap:0; padding:0; overflow:hidden; width:min(72vw,1100px); height:min(80svh,calc(100svh - 24px)); }
+.human-approval-content { display:flex; flex:1; flex-direction:column; min-height:0; padding:20px 24px 0; }
+.human-approval-source { padding-bottom:14px; color:#787774; font-size:13px; }
+.human-approval-source strong { color:#37352f; font-weight:600; }
+.human-approval-content .workflow-agent-output-tabs { min-width:0; margin:0 -24px; padding:0 24px; border:0; border-bottom:1px solid #e8e7e3; }
+.human-approval-output { display:flex; flex:1; min-height:0; overflow:auto; border:1px solid #e8e7e3; border-radius:9px 9px 0 0; background:#fff; }
+.human-approval-output iframe { flex:1; width:100%; border:0; background:#fff; }
+.human-approval-output pre { flex:1; margin:0; padding:18px; overflow:auto; color:#37352f; font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
+.human-approval-footer { display:flex; flex-direction:column; gap:10px; padding:16px 24px 20px; border-top:1px solid #e8e7e3; }
+.human-approval-footer .agent-card-field { display:flex; flex-direction:column; gap:8px; font-size:13px; font-weight:600; }
+.human-approval-footer textarea { min-height:90px; max-height:180px; padding:12px; resize:vertical; border:1px solid #deddd8; border-radius:8px; outline:none; font:inherit; font-weight:400; }
+.human-approval-footer textarea:focus { border-color:#89877f; }
+.human-approval-actions { display:flex; justify-content:flex-end; gap:8px; }
+.human-approval-actions button { min-height:38px; padding:0 16px; border:1px solid #deddd8; border-radius:7px; background:#fff; color:#37352f; font:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+.human-approval-actions button:last-child { border-color:#37352f; background:#37352f; color:#fff; }
+.human-approval-actions button:disabled { opacity:.5; cursor:default; }
+.human-approval-notice { position:fixed; right:20px; bottom:20px; z-index:60; display:flex; gap:16px; max-width:420px; padding:14px 16px; border:1px solid #e8e7e3; border-radius:9px; background:#fff; box-shadow:0 8px 28px #0002; color:#37352f; font-size:12px; }
+.human-approval-notice button { border:0; background:none; color:#787774; cursor:pointer; }
+@media(max-width:760px) { .human-approval-dialog.node-inspector.node-inspector-agent[data-slot='dialog-content'] { width:calc(100vw - 24px); height:calc(100svh - 24px); } .human-approval-content { padding:16px 16px 0; } .human-approval-content .workflow-agent-output-tabs { margin:0 -16px; padding:0 16px; } .human-approval-footer { padding:14px 16px; } }
 @media(max-width:760px) { .workflow-agent-dialog.node-inspector.node-inspector-agent[data-slot='dialog-content'] { width:calc(100vw - 24px); height:calc(100svh - 24px); } .workflow-agent-layout { flex-direction:column; overflow-y:auto; } .workflow-agent-form.agent-card-form { flex:none; width:100%; overflow:visible; border-right:0; border-bottom:1px solid #e8e7e3; } .workflow-agent-output-panel { flex:none; min-height:320px; } .workflow-agent-output-body { min-height:260px; } }
 .workflow-handoff-dialog.node-inspector.node-inspector-agent[data-slot='dialog-content'] { gap:0; padding:0; overflow:hidden; }
 .workflow-handoff-form.agent-card-form { gap:18px; }

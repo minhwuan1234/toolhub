@@ -81,13 +81,25 @@ export function handoffContextForAgent(agentId: string, links: AgentLink[], outp
 
 export function syncDesignerHandoffDeliveries() {
   try {
-    const graph = JSON.parse(localStorage.getItem(designerGraphStorageKey) || '{}') as { nodes?: Array<{ id?: unknown; kind?: unknown; handoffMode?: unknown; active?: unknown }> };
-    const sendNodeIds = Array.isArray(graph.nodes) ? graph.nodes.filter(node => node.kind === 'agent-handoff' && node.handoffMode === 'send' && node.active !== false && typeof node.id === 'string').map(node => node.id as string) : [];
-    const next = [...readHandoffDeliveries().filter(delivery => delivery.sourceAgentId !== 'designer'), ...deliveriesForDesigner(readAgentLinks(), readAgentOutputs(), sendNodeIds)];
+    const graph = JSON.parse(localStorage.getItem(designerGraphStorageKey) || '{}') as { nodes?: Array<{ id?: unknown; kind?: unknown; handoffMode?: unknown; active?: unknown }>; links?: Array<{ source?: unknown; target?: unknown; command?: unknown }> };
+    const approvalIds = new Set(Array.isArray(graph.nodes) ? graph.nodes.filter(node => node.kind === 'human-approval' && typeof node.id === 'string').map(node => node.id as string) : []);
+    const gatedIds = new Set(Array.isArray(graph.links) ? graph.links.filter(link => approvalIds.has(String(link.source)) && link.command === 'approve' && typeof link.target === 'string').map(link => link.target as string) : []);
+    const sendNodeIds = Array.isArray(graph.nodes) ? graph.nodes.filter(node => node.kind === 'agent-handoff' && node.handoffMode === 'send' && node.active !== false && typeof node.id === 'string' && !gatedIds.has(node.id)).map(node => node.id as string) : [];
+    const next = [...readHandoffDeliveries().filter(delivery => delivery.sourceAgentId !== 'designer' || gatedIds.has(delivery.handoffNodeId) && delivery.runId.startsWith('approval:')), ...deliveriesForDesigner(readAgentLinks(), readAgentOutputs(), sendNodeIds)];
     const value = JSON.stringify(next);
     if (localStorage.getItem(handoffDeliveriesStorageKey) !== value) {
       localStorage.setItem(handoffDeliveriesStorageKey, value);
       window.dispatchEvent(new Event(handoffDeliveriesChangedEvent));
     }
   } catch { /* Keep graph and chat usable if local storage is unavailable. */ }
+}
+
+export function deliverApprovedDesignerHandoff(handoffNodeId: string, runId: string, content: string) {
+  try {
+    const createdAt = new Date().toISOString();
+    const deliveries = routesForAgent(readAgentLinks(), 'designer').outgoing.map(targetAgentId => ({ sourceAgentId: 'designer', targetAgentId, handoffNodeId, runId: `approval:${runId}`, content, createdAt }));
+    const next = [...readHandoffDeliveries().filter(item => item.handoffNodeId !== handoffNodeId), ...deliveries].slice(-100);
+    localStorage.setItem(handoffDeliveriesStorageKey, JSON.stringify(next));
+    window.dispatchEvent(new Event(handoffDeliveriesChangedEvent));
+  } catch { /* The approval remains saved even if this browser cannot store handoffs. */ }
 }

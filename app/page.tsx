@@ -22,6 +22,7 @@ import {UsagePanel,useUsage} from './usage-panel';
 import { WorkspaceShell } from './workspace-shell';
 import { AdminUsers } from './admin-users';
 import { AgentWorkflowGraph } from './agent-workflow-graph';
+import { HumanApprovalDialog } from './human-approval-dialog';
 
 type User = { id: string; name: string; email: string; department: string; role?: string; image?:string|null };
 type Screen = 'login' | 'signup' | 'forgot' | 'account';
@@ -140,6 +141,7 @@ export default function Home() {
     {activePage==='usage' && user.role==='admin'?<UsagePanel key={usage.data?.periodKey??'pending'} data={usage.data} error={usage.error} loading={usage.loading} onRefresh={usage.refresh}/>:activePage==='members' && user.role==='admin'?<AdminUsers currentUserId={user.id}/>:null}
     <div className="toolhub-workspace" style={{display:activePage==='toolhub'?'flex':'none'}}><DepartmentBoard agentStates={agentStates} configured={modelConfigured} canManageAgents={user.role==='admin'} onAgentCardsChanged={()=>setAgentCardsRefreshKey(current=>current+1)} onOpenDesignerGraph={()=>setActivePage('designer-graph')} inspectDesignerCard={inspectDesignerCard} onInspectDesignerCardHandled={()=>setInspectDesignerCard(false)}/><AgentChat refreshKey={agentCardsRefreshKey} onConfigured={setModelConfigured} onAgentState={(agentId,state)=>setAgentStates(current=>({...current,[agentId]:state}))}/></div>
     {activePage==='designer-graph' && <div className="designer-graph-screen"><AgentWorkflowGraph onOpenAgentCard={()=>setInspectDesignerCard(true)}/></div>}
+    {user.role==='admin' && <HumanApprovalDialog/>}
   </WorkspaceShell>;
 
   return (

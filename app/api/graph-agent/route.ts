@@ -1,7 +1,7 @@
 import { getAuth } from '@/lib/server/auth';
 import { runAgent } from '@/lib/agent-team';
 import { validateStructuredOutput } from '@/lib/structured-output';
-import { saveDesignerGraphOutput } from '@/lib/server/designer-graph';
+import { getUnconsumedGraphFeedback, markGraphFeedbackConsumed, saveDesignerGraphOutput } from '@/lib/server/designer-graph';
 
 export async function POST(request: Request) {
   try {
@@ -19,8 +19,11 @@ export async function POST(request: Request) {
     const output = validateStructuredOutput(JSON.stringify(body.outputSchema ?? null));
     if (!output.ok) return Response.json({ error: output.error }, { status: 400 });
     if (typeof body.nodeId !== 'string' || !body.nodeId || body.nodeId.length > 100) return Response.json({ error: 'AI Agent node ID is required.' }, { status: 400 });
-    const result = await runAgent('designer', body.message, '', { outputSchema: output.schema, additionalInstructions: typeof body.instructions === 'string' ? body.instructions : '' });
+    const feedback = await getUnconsumedGraphFeedback(body.nodeId);
+    const message = feedback ? `${body.message}\n\nHuman review feedback for this revision:\n${feedback.feedback}` : body.message;
+    const result = await runAgent('designer', message, '', { outputSchema: output.schema, additionalInstructions: typeof body.instructions === 'string' ? body.instructions : '' });
     await saveDesignerGraphOutput(body.nodeId, JSON.stringify(JSON.parse(result.content) as unknown, null, 2));
+    if (feedback) await markGraphFeedbackConsumed(feedback.id);
     return Response.json({ result }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : 'Unable to run the AI Agent.' }, { status: 503 });
