@@ -36,7 +36,7 @@ export function validateDesignerGraph(value: unknown): DesignerGraphDocument {
   const ids = new Set(nodes.map(item => (item as DesignerGraphNode).id));
   if (ids.size !== nodes.length) throw new Error('Graph has duplicate node IDs.');
   const kinds = new Map(nodes.map(item => [(item as DesignerGraphNode).id, (item as DesignerGraphNode).kind]));
-  if ((graph.links as unknown[]).some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as ContextInputLink).source !== 'string' || typeof (item as ContextInputLink).target !== 'string' || (item as ContextInputLink).source === (item as ContextInputLink).target || !ids.has((item as ContextInputLink).source) || !ids.has((item as ContextInputLink).target) || !(kinds.get((item as ContextInputLink).source) === 'human-approval' ? ['input', 'approve', 'deny'] : ['input']).includes((item as ContextInputLink).command))) throw new Error('Graph has an invalid link.');
+  if ((graph.links as unknown[]).some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as ContextInputLink).source !== 'string' || typeof (item as ContextInputLink).target !== 'string' || (item as ContextInputLink).source === (item as ContextInputLink).target || !ids.has((item as ContextInputLink).source) || !ids.has((item as ContextInputLink).target) || !(kinds.get((item as ContextInputLink).source) === 'human-approval' ? ['input', 'approve', 'deny', 'loop'] : ['input']).includes((item as ContextInputLink).command) || (item as ContextInputLink).command === 'loop' && kinds.get((item as ContextInputLink).target) !== 'agent')) throw new Error('Graph has an invalid link.');
   return {
     nodes: nodes as DesignerGraphNode[],
     links: graph.links as ContextInputLink[],
@@ -147,7 +147,7 @@ export async function decideGraphApproval(id: string, decision: 'approved' | 'de
     if (!approvals[0]) throw new Error('This approval has already been handled.');
     const { rows } = await client.query<{ document: DesignerGraphDocument }>('SELECT document FROM designer_graphs WHERE id=$1', [graphId]);
     const graph = rows[0] ? validateDesignerGraph(rows[0].document) : null;
-    const targets = graph?.links.filter(link => link.source === approvals[0].approval_node_id && link.command === (decision === 'approved' ? 'approve' : 'deny')).map(link => link.target) || [];
+    const targets = graph?.links.filter(link => link.source === approvals[0].approval_node_id && (decision === 'approved' ? link.command === 'approve' : link.command === 'deny' || link.command === 'loop')).map(link => link.target) || [];
     await client.query('UPDATE designer_graph_approvals SET status=$2, feedback=$3, branch_targets=$4, decided_at=now() WHERE id=$1', [id, decision, decision === 'denied' ? feedback.trim() : null, JSON.stringify(targets)]);
     await client.query('COMMIT');
     return { targets, output: approvals[0].output };
@@ -176,7 +176,7 @@ export function graphAgentTask(node: DesignerGraphNode, document: DesignerGraphD
 
 export function graphRunIncomingLinks(document: DesignerGraphDocument, nodeId: string): ContextInputLink[] {
   const incoming = document.links.filter(link => link.target === nodeId && (link.command === 'input' || link.command === 'approve'));
-  if (!incoming.length && document.links.some(link => link.target === nodeId && link.command === 'deny')) throw new Error('The Deny branch is waiting for its execution logic.');
+  if (!incoming.length && document.links.some(link => link.target === nodeId && (link.command === 'deny' || link.command === 'loop'))) throw new Error('The Deny branch is waiting for its execution logic.');
   return incoming;
 }
 

@@ -20,7 +20,7 @@ import { GraphRunOutputDialog, HumanApprovalNodeDialog } from './human-approval-
 type ContextFile = { id: string; name: string; content: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
 type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context' | 'agent' | 'tool-calling' | 'human-approval' | 'skill' | 'agent-handoff'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[]; contextTags: ContextTag[]; handoffMode: 'receive' | 'send'; testDocument: string; useTestDocument: boolean; taskText: string; instructionPrompt: string; explicitInput: string; structuredOutput: string; lastOutput: string };
-type GraphLink = { id: string; source: string; target: string; command: 'input' | 'approve' | 'deny' };
+type GraphLink = { id: string; source: string; target: string; command: 'input' | 'approve' | 'deny' | 'loop' };
 
 const storageKey = 'toolhub:designer-graph:v3';
 const previousStorageKey = 'toolhub:designer-graph:v2';
@@ -119,7 +119,7 @@ function isGraphLink(value: unknown): value is GraphLink {
 
 function normalizeGraphLink(link: GraphLink, nodes: GraphNode[]): GraphLink {
   const source = nodes.find(node => node.id === link.source);
-  return { ...link, command: source?.kind === 'human-approval' ? link.command === 'deny' ? 'deny' : 'approve' : 'input' };
+  return { ...link, command: source?.kind === 'human-approval' ? link.command === 'loop' ? 'loop' : link.command === 'deny' ? 'deny' : 'approve' : 'input' };
 }
 
 function savedGraphDocument(nodes: GraphNode[], links: GraphLink[], screenContextsSeeded: boolean, screenContextVersion: number) {
@@ -127,7 +127,7 @@ function savedGraphDocument(nodes: GraphNode[], links: GraphLink[], screenContex
 }
 
 function outputPoint(source: GraphNode, command: GraphLink['command']) {
-  return { x: source.x + nodeWidth, y: source.y + (source.kind === 'human-approval' ? command === 'deny' ? 45 : 19 : nodeWidth / 2) };
+  return { x: source.x + nodeWidth, y: source.y + (source.kind === 'human-approval' ? command === 'deny' || command === 'loop' ? 45 : 19 : nodeWidth / 2) };
 }
 
 function linkPath(source: GraphNode, target: GraphNode, command: GraphLink['command']) {
@@ -405,7 +405,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   function connect(source: string, target: string, command: GraphLink['command'] = 'input') {
     if (source !== target && nodes.some(node => node.id === source) && nodes.some(node => node.id === target)) {
-      const branch = nodes.find(node => node.id === source)?.kind === 'human-approval' ? command === 'deny' ? 'deny' : 'approve' : 'input';
+      const branch = nodes.find(node => node.id === source)?.kind === 'human-approval' ? command === 'deny' && nodes.find(node => node.id === target)?.kind === 'agent' ? 'loop' : command === 'deny' ? 'deny' : 'approve' : 'input';
       setLinks(current => current.some(link => link.source === source && link.target === target && link.command === branch) ? current : [...current, { id: crypto.randomUUID(), source, target, command: branch }]);
     }
     portDragRef.current = null;
@@ -697,14 +697,14 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
             const d = linkPath(source, target, link.command);
             const labelX = (source.x + nodeWidth + target.x) / 2;
             const labelY = (outputPoint(source, link.command).y + target.y + nodeWidth / 2) / 2;
-            const label = source.kind === 'human-approval' ? link.command === 'deny' ? 'Deny' : 'Approve' : 'input';
+            const label = source.kind === 'human-approval' ? link.command === 'loop' ? 'Loop' : link.command === 'deny' ? 'Deny' : 'Approve' : 'input';
             const labelWidth = label === 'Approve' ? 58 : 46;
             return <ContextMenu key={link.id}><ContextMenuTrigger render={<g/>} className={selectedLink === link.id ? 'workflow-graph-link is-selected' : 'workflow-graph-link'} onContextMenu={() => setSelectedLink(link.id)}>
               <path d={d} className="connection-hit" role="button" tabIndex={0} aria-label={`${label} connection from ${source.name} to ${target.name}. Press Delete to remove.`} onPointerDown={event => event.stopPropagation()} onClick={event => { event.currentTarget.focus(); setSelectedLink(link.id); }} onKeyDown={event => { if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); event.stopPropagation(); if (!event.repeat) { setLinks(current => current.filter(item => item.id !== link.id)); setSelectedLink(null); } } else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedLink(link.id); } }}/>
               <path d={d} className="connection-line" markerEnd="url(#workflow-link-arrow)"/>
               <path d={d} className="connection-motion"/>
               <g className="workflow-edge-label" aria-hidden="true" transform={`translate(${labelX} ${labelY})`}><rect x={-labelWidth / 2} y="-10" width={labelWidth} height="20" rx="5"/><text textAnchor="middle" dominantBaseline="central">{label}</text></g>
-            </ContextMenuTrigger><ContextMenuContent className="node-context-menu workflow-edge-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>{source.kind === 'human-approval' ? (['approve', 'deny'] as const).map(branch => <ContextMenuItem key={branch} onClick={() => setLinks(current => current.some(item => item.id !== link.id && item.source === link.source && item.target === link.target && item.command === branch) ? current : current.map(item => item.id === link.id ? { ...item, command: branch } : item))}><Check/>{branch === 'approve' ? 'Approve' : 'Deny'}{link.command === branch && <span className="node-delete-shortcut">Selected</span>}</ContextMenuItem>) : <ContextMenuItem><Check/>Input<span className="node-delete-shortcut">Selected</span></ContextMenuItem>}</ContextMenuContent></ContextMenu>;
+            </ContextMenuTrigger><ContextMenuContent className="node-context-menu workflow-edge-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>{source.kind === 'human-approval' ? (target.kind === 'agent' ? ['approve', 'deny', 'loop'] as const : ['approve', 'deny'] as const).map(branch => <ContextMenuItem key={branch} onClick={() => setLinks(current => current.some(item => item.id !== link.id && item.source === link.source && item.target === link.target && item.command === branch) ? current : current.map(item => item.id === link.id ? { ...item, command: branch } : item))}><Check/>{branch === 'approve' ? 'Approve' : branch === 'deny' ? 'Deny' : 'Loop'}{link.command === branch && <span className="node-delete-shortcut">Selected</span>}</ContextMenuItem>) : <ContextMenuItem><Check/>Input<span className="node-delete-shortcut">Selected</span></ContextMenuItem>}</ContextMenuContent></ContextMenu>;
           })}
           {draft && (() => { const source = nodes.find(node => node.id === draft.source); const target = draft.target ? nodes.find(node => node.id === draft.target) : null; return source ? <path className={`connection-preview${target ? ' is-ready' : ''}`} d={curve(outputPoint(source, draft.command), target ? { x: target.x, y: target.y + nodeWidth / 2 } : draft.point)}/> : null; })()}
         </svg>
@@ -731,7 +731,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           }}
         >{(() => { const Icon = iconOptions.find(option => option.type === node.icon)?.icon || Workflow; return <Icon size={28} strokeWidth={1.6} aria-hidden="true"/>; })()}</button><span className="workflow-graph-node-label node-name" title={node.name}>{node.name}</span><span className={`node-status${node.active ? ' is-active' : ''}`}><span aria-hidden="true"/>{!node.active ? 'Inactive' : node.kind === 'agent-handoff' ? node.handoffMode === 'receive' ? 'Receive' : 'Send' : 'Active'}</span>
           <button type="button" className={`node-port workflow-graph-port workflow-graph-port-input${draft && draft.source !== node.id ? ' can-connect' : ''}${draft?.target === node.id ? ' is-target' : ''}${links.some(link => link.target === node.id) ? ' is-connected' : ''}`} data-workflow-input={node.id} aria-label={`Input of ${node.name}`} title="Input — drop a connection here" onPointerDown={event => event.stopPropagation()} onClick={() => { if (draft) connect(draft.source, node.id, draft.command); }}/>
-          {(node.kind === 'human-approval' ? ['approve', 'deny'] as const : ['input'] as const).map(command => <button key={command} type="button" className={`node-port workflow-graph-port workflow-graph-port-output${node.kind === 'human-approval' ? ` is-${command}` : ''}${links.some(link => link.source === node.id && link.command === command) ? ' is-connected' : ''}`} aria-label={`${command === 'input' ? 'Connect' : command === 'approve' ? 'Approve' : 'Deny'} from ${node.name}`} title={`${command === 'input' ? 'Output' : command === 'approve' ? 'Approve' : 'Deny'} — drag to another node's input`} onPointerDown={event => startConnection(event, node, command)} onPointerMove={event => moveConnection(event, node.id)} onPointerUp={event => endConnection(event, node.id)} onPointerCancel={event => { event.stopPropagation(); portDragRef.current = null; setDraft(null); }} onLostPointerCapture={event => { event.stopPropagation(); if (portDragRef.current) { portDragRef.current = null; setDraft(null); } }} onClick={event => { if (event.detail === 0) { const point = outputPoint(node, command); setDraft({ source: node.id, command, point: { x: point.x + 66, y: point.y }, target: null }); } }}/>) }
+          {(node.kind === 'human-approval' ? ['approve', 'deny'] as const : ['input'] as const).map(command => <button key={command} type="button" className={`node-port workflow-graph-port workflow-graph-port-output${node.kind === 'human-approval' ? ` is-${command}` : ''}${links.some(link => link.source === node.id && (link.command === command || command === 'deny' && link.command === 'loop')) ? ' is-connected' : ''}`} aria-label={`${command === 'input' ? 'Connect' : command === 'approve' ? 'Approve' : 'Deny'} from ${node.name}`} title={`${command === 'input' ? 'Output' : command === 'approve' ? 'Approve' : 'Deny'} — drag to another node's input`} onPointerDown={event => startConnection(event, node, command)} onPointerMove={event => moveConnection(event, node.id)} onPointerUp={event => endConnection(event, node.id)} onPointerCancel={event => { event.stopPropagation(); portDragRef.current = null; setDraft(null); }} onLostPointerCapture={event => { event.stopPropagation(); if (portDragRef.current) { portDragRef.current = null; setDraft(null); } }} onClick={event => { if (event.detail === 0) { const point = outputPoint(node, command); setDraft({ source: node.id, command, point: { x: point.x + 66, y: point.y }, target: null }); } }}/>) }
         </ContextMenuTrigger><ContextMenuContent className="node-context-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
           <ContextMenuItem disabled={!node.active || execution?.running} onClick={() => void playGraphNode(node)}><Play/>Play</ContextMenuItem>
           {node.kind === 'context' && <ContextMenuItem onClick={() => { setFileError(''); setEditingNode(node.id); }}><FileText/>Edit context</ContextMenuItem>}
