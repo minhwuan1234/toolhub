@@ -55,7 +55,7 @@ export async function POST(request: Request) {
             if (!document) throw new Error('Open the UI/UX graph once to save it before running from chat.');
             const nodeId = designerGraphNodeForTestDocument(document);
             send({ type: 'start', agentId: 'designer' });
-            const run = await runStoredGraphAgent(nodeId);
+            const run = await runStoredGraphAgent(nodeId, message);
             send({ type: 'result', result: run.result });
             send({ type: 'done' });
             return;

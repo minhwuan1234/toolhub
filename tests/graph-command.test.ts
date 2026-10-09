@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { asksToRunDesignerGraph, designerGraphNodeForTestDocument } from '../lib/graph-command';
 import type { DesignerGraphDocument } from '../lib/server/designer-graph';
+import { graphAgentTask } from '../lib/server/designer-graph';
+import { resolveGraphAgentInput } from '../lib/context-tags';
 
 void test('plain request for a UI/UX run from a Test document routes to the graph', () => {
   assert.equal(asksToRunDesignerGraph('Chạy agent UI/UX để thiết kế màn giao diện từ Test document trong Agent Handoff'), true);
@@ -19,5 +21,8 @@ void test('graph command selects only an agent connected to the saved test hando
     links: [{ source: 'handoff', target: 'agent', command: 'input' }],
   } as DesignerGraphDocument;
   assert.equal(designerGraphNodeForTestDocument(graph), 'agent');
+  const task = graphAgentTask({ ...graph.nodes[1], explicitInput: '' }, graph, 'Design from Test document');
+  assert.equal(task, 'Design from Test document');
+  assert.deepEqual(resolveGraphAgentInput('agent', task, graph.nodes.map(node => ({ ...node, contextFiles: [], contextTags: [] })), graph.links, { handoff: 'BA brief' }), { ok: true, content: 'Design from Test document\n\nBA brief' });
   assert.throws(() => designerGraphNodeForTestDocument({ ...graph, links: [] }), /Connect an active/);
 });

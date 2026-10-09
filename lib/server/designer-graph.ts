@@ -92,7 +92,12 @@ export async function saveDesignerGraphOutput(nodeId: string, content: string): 
   );
 }
 
-export async function runStoredGraphAgent(nodeId: string) {
+export function graphAgentTask(node: DesignerGraphNode, document: DesignerGraphDocument, fallbackTask: string): string {
+  const hasWorkflowTask = document.links.some(link => link.target === node.id && link.command === 'input' && document.nodes.some(item => item.id === link.source && item.kind === 'workflow' && item.active !== false && item.taskText?.trim()));
+  return node.explicitInput?.trim() || (hasWorkflowTask ? '' : fallbackTask);
+}
+
+export async function runStoredGraphAgent(nodeId: string, fallbackTask = '') {
   const { document } = await getDesignerGraph();
   if (!document) throw new Error('Save the UI/UX graph before running it through MCP.');
   const node = document.nodes.find(item => item.id === nodeId);
@@ -101,7 +106,7 @@ export async function runStoredGraphAgent(nodeId: string) {
   const format = validateStructuredOutput(node.structuredOutput);
   if (!format.ok) throw new Error(format.error);
   const handoffData = Object.fromEntries(document.nodes.filter(item => item.kind === 'agent-handoff' && item.active !== false && item.handoffMode === 'receive' && item.useTestDocument).map(item => [item.id, item.testDocument || '']));
-  const input = resolveGraphAgentInput(node.id, node.explicitInput, document.nodes, document.links, handoffData);
+  const input = resolveGraphAgentInput(node.id, graphAgentTask(node, document, fallbackTask), document.nodes, document.links, handoffData);
   if (!input.ok) throw new Error(input.error);
   const result = await runAgent('designer', input.content, '', { outputSchema: format.schema, additionalInstructions: node.instructionPrompt });
   const content = JSON.stringify(JSON.parse(result.content) as unknown, null, 2);
