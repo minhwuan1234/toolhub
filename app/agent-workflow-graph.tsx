@@ -3,7 +3,7 @@
 /* oxlint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex, jsx-a11y/prefer-tag-over-role */
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
-import { ArrowRightLeft, BookOpen, Bot, Check, ChevronDown, CircleCheck, FileText, Pencil, Power, Shapes, Ticket, Trash2, Workflow, Wrench } from 'lucide-react';
+import { ArrowRightLeft, BookOpen, Bot, Check, ChevronDown, CircleCheck, FileText, Pencil, Play, Power, Shapes, Ticket, Trash2, Workflow, Wrench } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -15,7 +15,7 @@ import { defaultStructuredOutputSchema, validateStructuredOutput } from '@/lib/s
 import { sampleSingleScreenBrief } from '@/lib/sample-screen-brief';
 import { initialUiScreenContextHashes, uiScreenContextCatalog, uiScreenContextHash, type UiScreenContext } from '@/lib/ui-screen-context-catalog';
 import { graphPreviewDocument } from '@/lib/graph-preview';
-import { HumanApprovalNodeDialog } from './human-approval-dialog';
+import { GraphRunOutputDialog, HumanApprovalNodeDialog } from './human-approval-dialog';
 
 type ContextFile = { id: string; name: string; content: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
@@ -168,6 +168,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [taskTagIndex, setTaskTagIndex] = useState(0);
   const [editingHandoff, setEditingHandoff] = useState<string | null>(null);
   const [inspectingApproval, setInspectingApproval] = useState<string | null>(null);
+  const [execution, setExecution] = useState<{ nodeId: string; nodeName: string; running: boolean; output: string; error: string } | null>(null);
   const [agentLinks, setAgentLinks] = useState<AgentLink[]>([]);
   const [agentOutputs, setAgentOutputs] = useState<AgentOutputSnapshot[]>([]);
   const [fileError, setFileError] = useState('');
@@ -450,6 +451,42 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     } finally { setRunningAgent(false); }
   }
 
+  async function playGraphNode(node: GraphNode) {
+    if (execution?.running) return;
+    setExecution({ nodeId: node.id, nodeName: node.name, running: true, output: '', error: '' });
+    try {
+      if (!graphServerReadyRef.current) throw new Error('The graph is still loading.');
+      const graph = savedGraphDocument(nodes, links, screenContextsSeeded, screenContextVersion);
+      const serialized = JSON.stringify(graph);
+      if (serialized !== lastSavedGraphRef.current) {
+        pendingGraphRef.current = { document: graph, serialized };
+        for (let attempt = 0; attempt < 50 && lastSavedGraphRef.current !== serialized; attempt++) {
+          await flushGraphSave();
+          if (lastSavedGraphRef.current !== serialized) await new Promise(resolve => window.setTimeout(resolve, 100));
+        }
+        if (lastSavedGraphRef.current !== serialized) throw new Error('The graph could not be saved. Reload it before pressing Play.');
+      }
+      const sources = routesForAgent(agentLinks, 'designer').incoming;
+      const received = agentOutputs.filter(output => sources.includes(output.agentId)).map(output => `## ${output.agentId} handoff\n${output.content}`).join('\n\n');
+      const handoffData = Object.fromEntries(nodes.filter(item => item.kind === 'agent-handoff' && item.handoffMode === 'receive').slice(0, 20).map(item => [item.id, receiveHandoffContent(received, item.testDocument, item.useTestDocument).slice(0, 8000)]));
+      const response = await fetch('/api/designer-graph/run-node', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nodeId: node.id, handoffData }) });
+      const data = await response.json() as { result?: { node_id: string; kind: GraphNode['kind']; status: string; output: string }; error?: string };
+      if (!response.ok || !data.result) throw new Error(data.error || 'Unable to run this node.');
+      const result = data.result;
+      if (result.kind === 'agent') {
+        updateNode(node.id, { lastOutput: result.output.slice(0, 200000) });
+        saveAgentOutput({ agentId: 'designer', runId: crypto.randomUUID(), content: result.output, createdAt: new Date().toISOString() });
+      } else if (result.kind === 'agent-handoff' && node.handoffMode === 'send' && result.output) {
+        saveAgentOutput({ agentId: 'designer', runId: crypto.randomUUID(), content: result.output, createdAt: new Date().toISOString() });
+      }
+      window.dispatchEvent(new Event('toolhub:graph-output'));
+      window.dispatchEvent(new Event('toolhub:agent-api-spend'));
+      setExecution(result.status === 'waiting_approval' ? null : { nodeId: node.id, nodeName: node.name, running: false, output: result.output, error: '' });
+    } catch (error) {
+      setExecution({ nodeId: node.id, nodeName: node.name, running: false, output: '', error: error instanceof Error ? error.message : 'Unable to run this node.' });
+    }
+  }
+
   function updateContextText(nodeId: string, value: string) {
     setNodes(current => current.map(node => node.id === nodeId ? { ...node, contextText: value, contextTags: parseContextTags(value, node.contextFiles, node.contextTags) } : node));
   }
@@ -612,6 +649,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   const stageHeight = Math.max(440, ...nodes.map(node => node.y + nodeHeight + 28));
   const stageWidth = Math.max(760, ...nodes.map(node => node.x + nodeWidth + 28));
+  const inspectedApprovalUpstream = inspectingApproval ? nodes.find(node => node.kind === 'agent' && node.lastOutput && links.some(link => link.target === inspectingApproval && link.source === node.id && link.command === 'input')) : null;
   const handoffRoutes = routesForAgent(agentLinks, 'designer');
   const agentLabel = (id: string) => ({ ba: 'BA Agent', designer: 'UI/UX Agent', developer: 'Developer Agent' })[id as 'ba' | 'designer' | 'developer'] || id;
 
@@ -695,6 +733,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           <button type="button" className={`node-port workflow-graph-port workflow-graph-port-input${draft && draft.source !== node.id ? ' can-connect' : ''}${draft?.target === node.id ? ' is-target' : ''}${links.some(link => link.target === node.id) ? ' is-connected' : ''}`} data-workflow-input={node.id} aria-label={`Input of ${node.name}`} title="Input — drop a connection here" onPointerDown={event => event.stopPropagation()} onClick={() => { if (draft) connect(draft.source, node.id, draft.command); }}/>
           {(node.kind === 'human-approval' ? ['approve', 'deny'] as const : ['input'] as const).map(command => <button key={command} type="button" className={`node-port workflow-graph-port workflow-graph-port-output${node.kind === 'human-approval' ? ` is-${command}` : ''}${links.some(link => link.source === node.id && link.command === command) ? ' is-connected' : ''}`} aria-label={`${command === 'input' ? 'Connect' : command === 'approve' ? 'Approve' : 'Deny'} from ${node.name}`} title={`${command === 'input' ? 'Output' : command === 'approve' ? 'Approve' : 'Deny'} — drag to another node's input`} onPointerDown={event => startConnection(event, node, command)} onPointerMove={event => moveConnection(event, node.id)} onPointerUp={event => endConnection(event, node.id)} onPointerCancel={event => { event.stopPropagation(); portDragRef.current = null; setDraft(null); }} onLostPointerCapture={event => { event.stopPropagation(); if (portDragRef.current) { portDragRef.current = null; setDraft(null); } }} onClick={event => { if (event.detail === 0) { const point = outputPoint(node, command); setDraft({ source: node.id, command, point: { x: point.x + 66, y: point.y }, target: null }); } }}/>) }
         </ContextMenuTrigger><ContextMenuContent className="node-context-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
+          <ContextMenuItem disabled={!node.active || execution?.running} onClick={() => void playGraphNode(node)}><Play/>Play</ContextMenuItem>
           {node.kind === 'context' && <ContextMenuItem onClick={() => { setFileError(''); setEditingNode(node.id); }}><FileText/>Edit context</ContextMenuItem>}
           {node.kind === 'workflow' && <ContextMenuItem onClick={() => setEditingWorkflow(node.id)}><Workflow/>Edit task</ContextMenuItem>}
           {node.kind === 'agent' && <ContextMenuItem onClick={() => openAgentOutput(node)}><Bot/>Structured output</ContextMenuItem>}
@@ -713,7 +752,8 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       <div className="node-picker-options workflow-graph-picker">{([{ kind: 'workflow', label: 'Workflow node', icon: Workflow }, { kind: 'context', label: 'Context Builder', icon: FileText }, { kind: 'agent', label: 'AI Agent', icon: Bot }, { kind: 'tool-calling', label: 'Tool Calling', icon: Wrench }, { kind: 'human-approval', label: 'Human Approval', icon: CircleCheck }, { kind: 'skill', label: 'Skill', icon: BookOpen }, { kind: 'agent-handoff', label: 'Agent Handoff', icon: ArrowRightLeft }] as const).map(({ kind, label, icon: Icon }) => <button type="button" key={kind} draggable={loaded && nodes.length < 100} disabled={!loaded || nodes.length >= 100} onDragStart={event => { event.dataTransfer.setData('application/x-toolhub-graph-node', kind); event.dataTransfer.effectAllowed = 'copy'; }} onDragEnd={() => setDragOver(false)} onClick={() => addNode(kind)}><span><Icon size={20}/></span>{label}</button>)}</div>
     </aside>
     </div>
-    {inspectingApproval && <HumanApprovalNodeDialog key={inspectingApproval} nodeId={inspectingApproval} nodeName={nodes.find(node => node.id === inspectingApproval)?.name || 'Human Approval'} onClose={() => setInspectingApproval(null)}/>}
+    {inspectingApproval && <HumanApprovalNodeDialog key={inspectingApproval} nodeId={inspectingApproval} nodeName={nodes.find(node => node.id === inspectingApproval)?.name || 'Human Approval'} upstreamOutput={inspectedApprovalUpstream?.lastOutput} upstreamName={inspectedApprovalUpstream?.name} onClose={() => setInspectingApproval(null)}/>}
+    {execution && <GraphRunOutputDialog key={execution.nodeId} nodeName={execution.nodeName} output={execution.output} running={execution.running} error={execution.error} onClose={() => setExecution(null)}/>}
     <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-rename-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
     <Dialog open={Boolean(editingWorkflow)} onOpenChange={open => { if (!open) { setEditingWorkflow(null); setTaskTagPicker(null); } }}>
       <DialogContent className="workflow-task-dialog">

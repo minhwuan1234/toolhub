@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { buildConnectedTagRegistry, resolveGraphAgentInput, type ContextTagSource, type ContextInputLink } from '@/lib/context-tags';
+import { buildConnectedTagRegistry, resolveConnectedInput, resolveGraphAgentInput, type ContextTagSource, type ContextInputLink } from '@/lib/context-tags';
 import { validateStructuredOutput } from '@/lib/structured-output';
 import { runAgent } from '@/lib/agent-team';
 import { getDatabase } from './database';
@@ -114,7 +114,7 @@ export async function getPendingGraphApproval(): Promise<GraphApproval | null> {
   return rows[0] || null;
 }
 
-export type GraphApprovalHistory = GraphApproval & { status: 'pending' | 'approved' | 'denied'; feedback: string | null; decided_at: string | null };
+export type GraphApprovalHistory = GraphApproval & { status: 'pending' | 'approved' | 'denied' | 'upstream-output'; feedback: string | null; decided_at: string | null };
 
 export async function getLatestGraphApproval(approvalNodeId: string): Promise<GraphApprovalHistory | null> {
   if (!approvalNodeId || approvalNodeId.length > 100) throw new Error('Invalid approval node ID.');
@@ -122,7 +122,18 @@ export async function getLatestGraphApproval(approvalNodeId: string): Promise<Gr
     'SELECT id, source_node_id, approval_node_id, source_name, output, status, feedback, created_at, decided_at FROM designer_graph_approvals WHERE approval_node_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1',
     [approvalNodeId],
   );
-  return rows[0] || null;
+  const latestApproval = rows[0] || null;
+  const { document } = await getDesignerGraph();
+  const incoming = document?.links.filter(link => link.target === approvalNodeId && link.command === 'input').map(link => link.source) || [];
+  if (!incoming.length) return latestApproval;
+  const { rows: outputs } = await getDatabase().query<{ node_id: string; content: string; updated_at: Date }>(
+    'SELECT node_id, content, updated_at FROM designer_graph_outputs WHERE node_id = ANY($1::text[]) ORDER BY updated_at DESC LIMIT 1',
+    [incoming],
+  );
+  const output = outputs[0];
+  if (!output || latestApproval && new Date(output.updated_at).getTime() <= new Date(latestApproval.created_at).getTime()) return latestApproval;
+  const source = document?.nodes.find(node => node.id === output.node_id);
+  return { id: `upstream:${output.node_id}`, source_node_id: output.node_id, approval_node_id: approvalNodeId, source_name: source?.name || 'Connected node', output: output.content, status: 'upstream-output', feedback: null, created_at: output.updated_at.toISOString(), decided_at: null };
 }
 
 export async function decideGraphApproval(id: string, decision: 'approved' | 'denied', feedback: string): Promise<{ targets: string[]; output: string }> {
@@ -163,7 +174,13 @@ export function graphAgentTask(node: DesignerGraphNode, document: DesignerGraphD
   return [fallbackTask.trim(), styleTags.length ? `Use these connected Toolhub design rules for the screen: ${styleTags.map(name => `/${name}/`).join(' ')}` : ''].filter(Boolean).join('\n\n');
 }
 
-export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', approvedOutput = '') {
+export function graphRunIncomingLinks(document: DesignerGraphDocument, nodeId: string): ContextInputLink[] {
+  const incoming = document.links.filter(link => link.target === nodeId && (link.command === 'input' || link.command === 'approve'));
+  if (!incoming.length && document.links.some(link => link.target === nodeId && link.command === 'deny')) throw new Error('The Deny branch is waiting for its execution logic.');
+  return incoming;
+}
+
+export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', approvedOutput = '', liveHandoffs: Record<string, string> = {}) {
   const { document } = await getDesignerGraph();
   if (!document) throw new Error('Save the UI/UX graph before running it through MCP.');
   const node = document.nodes.find(item => item.id === nodeId);
@@ -171,16 +188,74 @@ export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', app
   if (!node.active) throw new Error('AI Agent node is inactive.');
   const format = validateStructuredOutput(node.structuredOutput);
   if (!format.ok) throw new Error(format.error);
-  const handoffData = Object.fromEntries(document.nodes.filter(item => item.kind === 'agent-handoff' && item.active !== false && item.handoffMode === 'receive' && item.useTestDocument).map(item => [item.id, item.testDocument || '']));
+  const handoffData = { ...Object.fromEntries(document.nodes.filter(item => item.kind === 'agent-handoff' && item.active !== false && item.handoffMode === 'receive' && item.useTestDocument).map(item => [item.id, item.testDocument || ''])), ...liveHandoffs };
   const task = graphAgentTask(node, document, fallbackTask || (approvedOutput ? 'Continue the workflow using the approved output from the previous node.' : ''));
   const input = resolveGraphAgentInput(node.id, task, document.nodes, document.links, handoffData);
   if (!input.ok) throw new Error(input.error);
   if (approvedOutput.length > 99000) throw new Error('Approved output exceeds the next agent context limit.');
   const feedback = await getUnconsumedGraphFeedback(node.id);
   const message = feedback ? `${input.content}\n\nHuman review feedback for this revision:\n${feedback.feedback}` : input.content;
-  const result = await runAgent('designer', message, approvedOutput ? `Approved output from the previous graph node:\n${approvedOutput}` : '', { outputSchema: format.schema, additionalInstructions: node.instructionPrompt, graphApprovedContext: Boolean(approvedOutput) });
+  const result = await runAgent('designer', message, approvedOutput ? `Upstream graph output:\n${approvedOutput}` : '', { outputSchema: format.schema, additionalInstructions: node.instructionPrompt, graphApprovedContext: Boolean(approvedOutput) });
   const content = JSON.stringify(JSON.parse(result.content) as unknown, null, 2);
   await saveDesignerGraphOutput(node.id, content);
   if (feedback) await markGraphFeedbackConsumed(feedback.id);
   return { node_id: node.id, run_id: randomUUID(), result: { ...result, content } };
+}
+
+export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string, string> = {}) {
+  const { document } = await getDesignerGraph();
+  if (!document) throw new Error('Save the UI/UX graph before running a node.');
+  const nodeById = new Map(document.nodes.map(node => [node.id, node]));
+  if (!nodeById.has(nodeId)) throw new Error('Graph node not found.');
+  const visiting = new Set<string>();
+  const completed = new Map<string, string>();
+  let waitingForApproval = false;
+
+  async function visit(id: string): Promise<string> {
+    if (completed.has(id)) return completed.get(id)!;
+    if (visiting.has(id)) throw new Error('The graph contains a cycle. Remove the loop before pressing Play.');
+    const node = nodeById.get(id);
+    if (!node) throw new Error('An upstream node is missing.');
+    if (node.active === false) throw new Error(`${node.name} is inactive.`);
+    if (node.kind === 'tool-calling' || node.kind === 'skill') throw new Error(`${node.name} does not have execution logic yet.`);
+    visiting.add(id);
+    try {
+      if (node.kind === 'human-approval' && id !== nodeId) {
+        const approval = await getLatestGraphApproval(id);
+        if (approval?.status !== 'approved') throw new Error(`${node.name} is waiting for approval.`);
+        completed.set(id, approval.output);
+        return approval.output;
+      }
+      const incoming = graphRunIncomingLinks(document!, id);
+      const previous: Array<{ node: DesignerGraphNode | undefined; output: string }> = [];
+      for (const link of incoming) previous.push({ node: nodeById.get(link.source), output: await visit(link.source) });
+      let output = '';
+      if (node.kind === 'agent') {
+        const modelContext = previous.filter(item => item.node?.kind === 'agent' || item.node?.kind === 'human-approval' || item.node?.kind === 'agent-handoff' && item.node.handoffMode === 'send').map(item => `${item.node!.name}:\n${item.output}`).join('\n\n');
+        const run = await runStoredGraphAgent(id, '', modelContext, liveHandoffs);
+        output = run.result.content;
+      } else if (node.kind === 'human-approval') {
+        const approval = await getLatestGraphApproval(id);
+        if (approval?.status !== 'pending') throw new Error(`${node.name} has no pending output. Connect an AI Agent and run again.`);
+        output = approval.output;
+        waitingForApproval = true;
+      } else if (node.kind === 'context') {
+        output = node.contextText || '';
+      } else if (node.kind === 'workflow') {
+        const resolved = resolveConnectedInput(id, node.taskText || '', document!.nodes, document!.links);
+        if (!resolved.ok) throw new Error(resolved.error);
+        const received = previous.filter(item => item.node?.kind === 'agent-handoff' && item.node.handoffMode === 'receive').map(item => item.output).filter(Boolean);
+        output = [resolved.content, ...received].filter(Boolean).join('\n\n');
+      } else if (node.kind === 'agent-handoff') {
+        output = node.handoffMode === 'receive' ? liveHandoffs[id] || (node.useTestDocument ? node.testDocument || '' : '') : previous.map(item => item.output).filter(Boolean).join('\n\n');
+      }
+      if (id === nodeId && node.kind !== 'agent' && node.kind !== 'human-approval' && output) await saveDesignerGraphOutput(id, output);
+      completed.set(id, output);
+      return output;
+    } finally { visiting.delete(id); }
+  }
+
+  const output = await visit(nodeId);
+  const node = nodeById.get(nodeId)!;
+  return { node_id: nodeId, node_name: node.name, kind: node.kind, status: waitingForApproval ? 'waiting_approval' : 'complete', output };
 }

@@ -1,13 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { CircleCheck } from 'lucide-react';
+import { CircleCheck, Play } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { graphPreviewDocument } from '@/lib/graph-preview';
 import { deliverApprovedDesignerHandoff } from '@/lib/agent-handoff';
 
 type Approval = { id: string; source_name: string; output: string };
-type ApprovalHistory = Approval & { status: 'pending' | 'approved' | 'denied'; feedback: string | null };
+type ApprovalHistory = Approval & { status: 'pending' | 'approved' | 'denied' | 'upstream-output'; feedback: string | null };
 type View = 'preview' | 'html' | 'css' | 'js' | 'json';
 
 function outputFiles(value: string): { html: string; css: string; js: string } | null {
@@ -33,7 +33,18 @@ function ApprovalOutput({ approval }: { approval: Approval }) {
   </div>;
 }
 
-export function HumanApprovalNodeDialog({ nodeId, nodeName, onClose }: { nodeId: string; nodeName: string; onClose: () => void }) {
+export function GraphRunOutputDialog({ nodeName, output, running, error, onClose }: { nodeName: string; output: string; running: boolean; error: string; onClose: () => void }) {
+  return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+    <DialogContent className="node-inspector node-inspector-setup node-inspector-agent human-approval-dialog">
+      <header className="inspector-heading"><span className="inspector-icon"><Play size={20}/></span><DialogTitle>{nodeName}</DialogTitle></header>
+      <DialogDescription className="sr-only">Output from running this graph node.</DialogDescription>
+      {output ? <ApprovalOutput approval={{ id: nodeName, source_name: nodeName, output }}/> : <output className="human-approval-empty">{running ? 'Running upstream nodes…' : error || 'This node returned no output.'}</output>}
+      {error && output && <div className="human-approval-review-feedback" role="alert">{error}</div>}
+    </DialogContent>
+  </Dialog>;
+}
+
+export function HumanApprovalNodeDialog({ nodeId, nodeName, upstreamOutput, upstreamName, onClose }: { nodeId: string; nodeName: string; upstreamOutput?: string; upstreamName?: string; onClose: () => void }) {
   const [approval, setApproval] = useState<ApprovalHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -49,12 +60,14 @@ export function HumanApprovalNodeDialog({ nodeId, nodeName, onClose }: { nodeId:
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [nodeId]);
+  const visibleApproval = approval || (!loading && !error && upstreamOutput ? { id: `local:${nodeId}`, source_name: upstreamName || 'Connected node', output: upstreamOutput, status: 'upstream-output' as const, feedback: null } : null);
   return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
     <DialogContent className="node-inspector node-inspector-setup node-inspector-agent human-approval-dialog">
-      <header className="inspector-heading"><span className="inspector-icon"><CircleCheck size={21}/></span><DialogTitle>{nodeName}</DialogTitle>{approval && <span className={`human-approval-status is-${approval.status}`}>{approval.status === 'pending' ? 'Pending' : approval.status === 'approved' ? 'Approved' : 'Denied'}</span>}</header>
+      <header className="inspector-heading"><span className="inspector-icon"><CircleCheck size={21}/></span><DialogTitle>{nodeName}</DialogTitle>{visibleApproval && <span className={`human-approval-status is-${visibleApproval.status}`}>{visibleApproval.status === 'pending' ? 'Pending' : visibleApproval.status === 'approved' ? 'Approved' : visibleApproval.status === 'denied' ? 'Denied' : 'Not submitted'}</span>}</header>
       <DialogDescription className="sr-only">Latest output and decision for this Human Approval node.</DialogDescription>
-      {approval ? <ApprovalOutput approval={approval}/> : <output className="human-approval-empty">{loading ? 'Loading output…' : error || 'No output has reached this node yet.'}</output>}
-      {approval?.status === 'denied' && approval.feedback && <div className="human-approval-review-feedback"><strong>Feedback</strong><p>{approval.feedback}</p></div>}
+      {visibleApproval ? <ApprovalOutput approval={visibleApproval}/> : <output className="human-approval-empty">{loading ? 'Loading output…' : error || 'No output has reached this node yet.'}</output>}
+      {visibleApproval?.status === 'upstream-output' && <div className="human-approval-review-feedback">This is the connected node&apos;s latest output. Press Play to submit a new run for approval.</div>}
+      {visibleApproval?.status === 'denied' && visibleApproval.feedback && <div className="human-approval-review-feedback"><strong>Feedback</strong><p>{visibleApproval.feedback}</p></div>}
     </DialogContent>
   </Dialog>;
 }

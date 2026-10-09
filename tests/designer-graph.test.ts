@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { resolveGraphAgentInput } from '../lib/context-tags';
-import { validateDesignerGraph } from '../lib/server/designer-graph';
+import { graphRunIncomingLinks, validateDesignerGraph } from '../lib/server/designer-graph';
 
 const graph = {
   nodes: [
@@ -38,4 +38,14 @@ void test('Human Approval keeps separate Approve and Deny connections', () => {
   ];
   assert.deepEqual(validateDesignerGraph({ ...graph, nodes, links }).links, links);
   assert.throws(() => validateDesignerGraph({ ...graph, nodes, links: [{ ...links[0], source: 'context-1' }] }), /invalid link/);
+});
+
+void test('Play follows Approve input and holds the Deny branch', () => {
+  const document = validateDesignerGraph({
+    ...graph,
+    nodes: [...graph.nodes, { ...graph.nodes[2], id: 'approval', kind: 'human-approval', x: 200 }, { ...graph.nodes[2], id: 'next', x: 300 }, { ...graph.nodes[2], id: 'denied', x: 300, y: 100 }],
+    links: [{ id: 'to-approval', source: 'agent-1', target: 'approval', command: 'input' }, { id: 'approved', source: 'approval', target: 'next', command: 'approve' }, { id: 'denied', source: 'approval', target: 'denied', command: 'deny' }],
+  });
+  assert.deepEqual(graphRunIncomingLinks(document, 'next').map(link => link.source), ['approval']);
+  assert.throws(() => graphRunIncomingLinks(document, 'denied'), /Deny branch/);
 });
