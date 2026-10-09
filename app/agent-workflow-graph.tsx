@@ -93,7 +93,20 @@ function normalizeNode(node: GraphNode): GraphNode {
   }
   contextText = contextText.slice(0, maxContextCharacters);
   const contextTags = parseContextTags(contextText, contextFiles, previousTags);
-  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : kind === 'agent' ? `AI Agent ${node.number}` : kind === 'tool-calling' ? `Tool Calling ${node.number}` : kind === 'human-approval' ? `Human Approval ${node.number}` : kind === 'skill' ? `Skill ${node.number}` : kind === 'agent-handoff' ? `Agent Handoff ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'agent-handoff' && !node.handoffMode ? true : node.active !== false, contextText, contextFiles, contextTags, handoffMode: node.handoffMode === 'send' ? 'send' : 'receive', testDocument: typeof node.testDocument === 'string' ? node.testDocument.slice(0, 6000) : kind === 'agent-handoff' ? sampleSingleScreenBrief : '', useTestDocument: typeof node.useTestDocument === 'boolean' ? node.useTestDocument : kind === 'agent-handoff', taskText: typeof node.taskText === 'string' ? node.taskText.slice(0, 4000) : '', instructionPrompt: typeof node.instructionPrompt === 'string' ? node.instructionPrompt.slice(0, 4000) : '', explicitInput: typeof node.explicitInput === 'string' ? node.explicitInput.slice(0, 4000) : '', structuredOutput: typeof node.structuredOutput === 'string' ? node.structuredOutput.slice(0, 16000) : '', lastOutput: typeof node.lastOutput === 'string' ? node.lastOutput.slice(0, 30000) : '' };
+  return { ...node, kind, name: typeof node.name === 'string' && node.name.trim() ? node.name.slice(0, 60) : kind === 'context' ? `Context ${node.number}` : kind === 'agent' ? `AI Agent ${node.number}` : kind === 'tool-calling' ? `Tool Calling ${node.number}` : kind === 'human-approval' ? `Human Approval ${node.number}` : kind === 'skill' ? `Skill ${node.number}` : kind === 'agent-handoff' ? `Agent Handoff ${node.number}` : `Node ${node.number}`, icon: iconOptions.some(option => option.type === node.icon) ? node.icon : kind === 'context' ? 'document' : kind === 'agent' ? 'agent' : kind === 'tool-calling' ? 'tool-calling' : kind === 'human-approval' ? 'human-approval' : kind === 'skill' ? 'skill' : kind === 'agent-handoff' ? 'agent-handoff' : 'workflow', active: kind === 'agent-handoff' && !node.handoffMode ? true : node.active !== false, contextText, contextFiles, contextTags, handoffMode: node.handoffMode === 'send' ? 'send' : 'receive', testDocument: typeof node.testDocument === 'string' ? node.testDocument.slice(0, 6000) : kind === 'agent-handoff' ? sampleSingleScreenBrief : '', useTestDocument: typeof node.useTestDocument === 'boolean' ? node.useTestDocument : kind === 'agent-handoff', taskText: typeof node.taskText === 'string' ? node.taskText.slice(0, 4000) : '', instructionPrompt: typeof node.instructionPrompt === 'string' ? node.instructionPrompt.slice(0, 4000) : '', explicitInput: typeof node.explicitInput === 'string' ? node.explicitInput.slice(0, 4000) : '', structuredOutput: typeof node.structuredOutput === 'string' ? node.structuredOutput.slice(0, 16000) : '', lastOutput: typeof node.lastOutput === 'string' ? node.lastOutput.slice(0, 200000) : '' };
+}
+
+function outputFiles(value: string): { html: string; css: string; js: string } | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const files = parsed as Record<string, unknown>;
+      if (typeof files.html === 'string' && typeof files.css === 'string' && typeof files.js === 'string') {
+        return { html: files.html, css: files.css, js: files.js };
+      }
+    }
+  } catch { /* Keep non-file output readable as raw JSON. */ }
+  return null;
 }
 
 function isGraphLink(value: unknown): value is GraphLink {
@@ -133,6 +146,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [inputTagPicker, setInputTagPicker] = useState<{ start: number; query: string } | null>(null);
   const [inputTagIndex, setInputTagIndex] = useState(0);
   const [outputError, setOutputError] = useState('');
+  const [outputView, setOutputView] = useState<'html' | 'css' | 'js' | 'json'>('html');
   const [runningAgent, setRunningAgent] = useState(false);
   const [taskTagPicker, setTaskTagPicker] = useState<{ start: number; query: string } | null>(null);
   const [taskTagIndex, setTaskTagIndex] = useState(0);
@@ -301,6 +315,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     setInputDraft(node.explicitInput);
     setOutputDraft(node.structuredOutput || defaultStructuredOutputSchema);
     setOutputError('');
+    setOutputView('html');
     setInputTagPicker(null);
     setEditingAgent(node.id);
   }
@@ -321,7 +336,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       const data = await response.json() as { result?: { content: string }; error?: string };
       if (!response.ok || !data.result?.content) throw new Error(data.error || 'AI Agent returned no output.');
       const content = JSON.stringify(JSON.parse(data.result.content) as unknown, null, 2);
-      updateNode(node.id, { lastOutput: content.slice(0, 30000) });
+      updateNode(node.id, { lastOutput: content.slice(0, 200000) });
       saveAgentOutput({ agentId: 'designer', runId: crypto.randomUUID(), content, createdAt: new Date().toISOString() });
       window.dispatchEvent(new Event('toolhub:agent-api-spend'));
     } catch (error) {
@@ -633,7 +648,10 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
           const available = [...registry.definitions.values()];
           const suggestions = inputTagPicker ? available.filter(tag => tag.name.toLowerCase().includes(inputTagPicker.query.trim().toLowerCase()) && !registry.conflicts.has(tag.name.toLocaleLowerCase('en-US'))).slice(0, 8) : [];
           const inputCheck = resolveConnectedInput(node.id, inputDraft, nodes, links);
-          return <div className="agent-card-form workflow-agent-form">
+          const files = outputFiles(node.lastOutput);
+          const selectedView = files ? outputView : 'json';
+          const outputText = selectedView === 'json' ? node.lastOutput : files?.[selectedView] || '';
+          return <div className="workflow-agent-layout"><div className="agent-card-form workflow-agent-form">
             <div className="agent-card-field"><label htmlFor="workflow-agent-instruction">Instruction prompt</label><textarea id="workflow-agent-instruction" value={instructionDraft} maxLength={4000} onChange={event => { setInstructionDraft(event.target.value); setOutputError(''); }}/></div>
             <div className="agent-card-field"><label htmlFor="workflow-agent-input">Explicit input</label><div className="workflow-task-editor"><div ref={explicitInputMirrorRef} className="workflow-context-syntax-mirror" aria-hidden="true">{renderContextSyntax(inputDraft)}</div><textarea ref={explicitInputRef} id="workflow-agent-input" value={inputDraft} maxLength={4000} onChange={event => { setInputDraft(event.target.value); setInputTagPicker(openTagAt(event.target.value, event.target.selectionStart)); setInputTagIndex(0); setOutputError(''); }} onSelect={event => setInputTagPicker(openTagAt(event.currentTarget.value, event.currentTarget.selectionStart))} onScroll={event => { if (explicitInputMirrorRef.current) explicitInputMirrorRef.current.scrollTop = event.currentTarget.scrollTop; }} onKeyDown={event => {
               if (!inputTagPicker || !suggestions.length) return;
@@ -643,25 +661,31 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
               if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); selectInputTag(suggestions[inputTagIndex]?.name || suggestions[0].name); }
             }}/></div></div>
             {inputTagPicker && suggestions.length > 0 && <div className="workflow-task-suggestions" role="listbox" aria-label="Connected tags">{suggestions.map((tag, index) => <button type="button" role="option" aria-selected={index === inputTagIndex} key={tag.id} onMouseDown={event => event.preventDefault()} onClick={() => selectInputTag(tag.name)}>{tag.name}</button>)}</div>}
-            {available.length > 0 && <div className="workflow-task-tags" aria-label="Connected context tags">{available.map(tag => <button type="button" key={tag.id} disabled={registry.conflicts.has(tag.name.toLocaleLowerCase('en-US'))} onClick={() => {
+            {available.length > 0 && <details className="workflow-agent-tags"><summary>Connected tags <span>{available.length}</span></summary><div className="workflow-task-tags" aria-label="Connected context tags">{available.map(tag => <button type="button" key={tag.id} disabled={registry.conflicts.has(tag.name.toLocaleLowerCase('en-US'))} onClick={() => {
               const input = explicitInputRef.current;
               const start = input?.selectionStart ?? inputDraft.length;
               const end = input?.selectionEnd ?? start;
               const reference = `/${tag.name}/`;
               setInputDraft(current => `${current.slice(0, start)}${reference}${current.slice(end)}`);
               requestAnimationFrame(() => { input?.focus(); input?.setSelectionRange(start + reference.length, start + reference.length); });
-            }}>{tag.name}</button>)}</div>}
+            }}>{tag.name}</button>)}</div></details>}
             {!inputCheck.ok && <small role="alert" className="workflow-task-error">{inputCheck.error}</small>}
             <div className="agent-card-field"><label htmlFor="workflow-agent-output">Structured output · JSON</label><textarea className="workflow-agent-json" id="workflow-agent-output" value={outputDraft} maxLength={16000} spellCheck={false} onChange={event => { setOutputDraft(event.target.value); setOutputError(''); }}/></div>
-            {outputError && <small role="alert" className="workflow-task-error">{outputError}</small>}
             <div className="workflow-agent-actions"><button type="button" disabled={!validation.ok || runningAgent} onClick={() => {
               if (!validation.ok) return;
               updateNode(node.id, { instructionPrompt: instructionDraft, explicitInput: inputDraft, structuredOutput: validation.formatted, active: true });
               setOutputDraft(validation.formatted);
               setOutputError('');
             }}>Save</button><button type="button" disabled={runningAgent || !node.active || !validateStructuredOutput(node.structuredOutput).ok || outputDraft !== node.structuredOutput || instructionDraft !== node.instructionPrompt || inputDraft !== node.explicitInput || !inputCheck.ok} onClick={() => void runGraphAgent(node)}>{runningAgent ? 'Running…' : 'Run'}</button></div>
-            {node.lastOutput && <div className="workflow-agent-result"><strong>Latest output</strong><pre>{node.lastOutput}</pre></div>}
-          </div>;
+          </div><section className="workflow-agent-output-panel" aria-label="AI Agent output">
+            <header className="workflow-agent-output-heading"><strong>Output</strong>{node.lastOutput && <span>Last successful run</span>}</header>
+            {files && <div className="workflow-agent-output-tabs" role="group" aria-label="Output file">{(['html', 'css', 'js', 'json'] as const).map(view => <button type="button" aria-pressed={selectedView === view} key={view} onClick={() => setOutputView(view)}>{view === 'json' ? 'JSON' : `${view === 'html' ? 'index' : view === 'css' ? 'styles' : 'script'}.${view}`}</button>)}</div>}
+            <div className="workflow-agent-output-body">
+              {outputError && <div role="alert" className="workflow-agent-output-error">{outputError}</div>}
+              {runningAgent && <div role="status" className="workflow-agent-output-pending">Running agent…</div>}
+              {node.lastOutput ? <pre key={selectedView} className="workflow-agent-output-code">{outputText}</pre> : !runningAgent && <div className="workflow-agent-output-empty">Run this node to see its output.</div>}
+            </div>
+          </section></div>;
         })()}
       </DialogContent>
     </Dialog>
