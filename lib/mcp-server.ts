@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { agents, isAgentId, runAgent, type AgentResult } from './agent-team';
 import { listAgentCards, saveAgentCard, deleteAgentCard } from './server/agent-cards';
+import { getDesignerGraph, getDesignerGraphOutputs, runStoredGraphAgent } from './server/designer-graph';
 
 export type JsonRpcRequest = {
   jsonrpc?: string;
@@ -73,6 +74,16 @@ function tools() {
       inputSchema: { type: 'object', properties: { agent_id: { type: 'string' }, message: { type: 'string', minLength: 3, maxLength: 4000 }, context: { type: 'string', maxLength: 12000 } }, required: ['agent_id', 'message'], additionalProperties: false },
     },
     {
+      name: 'designer_graph_get',
+      description: 'Read the saved UI/UX graph, including its nodes, links, selected context tags, and latest node outputs.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    },
+    {
+      name: 'designer_graph_run_node',
+      description: 'Run one active AI Agent node in the saved UI/UX graph using its instruction prompt, explicit input, connected context tags, and structured output schema. The result is saved for the Toolhub Output panel.',
+      inputSchema: { type: 'object', properties: { node_id: { type: 'string' } }, required: ['node_id'], additionalProperties: false },
+    },
+    {
       name: 'agent_team_run',
       description: 'Run BA, UI/UX, and Developer in sequence, passing each result to the next agent.',
       inputSchema: { type: 'object', properties: { message: { type: 'string', minLength: 3, maxLength: 4000 }, context: { type: 'string', maxLength: 12000 } }, required: ['message'], additionalProperties: false },
@@ -124,6 +135,16 @@ export async function invokeMcpTool(name: string, args: Record<string, unknown> 
       const cards = await listAgentCards();
       return toolResult({ agents: cards.map(card => ({ id: card.id, name: card.name, title: card.role, outcome: card.mission })), cards, configured: Boolean(process.env.OPENAI_API_KEY) });
     } catch { return toolResult({ error: 'Unable to load agent cards.' }, true); }
+  }
+  if (name === 'designer_graph_get' || name === 'designer_graph_run_node') {
+    try {
+      if (name === 'designer_graph_get') {
+        const [graph, outputs] = await Promise.all([getDesignerGraph(), getDesignerGraphOutputs()]);
+        return toolResult({ ...graph, outputs });
+      }
+      if (typeof args.node_id !== 'string') throw new Error('node_id must be a string.');
+      return toolResult(await runStoredGraphAgent(args.node_id));
+    } catch (error) { return toolResult({ error: error instanceof Error ? error.message : 'Graph request failed.' }, true); }
   }
   if (name === 'agent_card_save' || name === 'agent_card_delete') {
     try {
@@ -213,7 +234,7 @@ export async function handleMcpRequest(input: JsonRpcRequest): Promise<JsonRpcRe
       protocolVersion,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: 'toolhub-mcp', version: '0.4.0' },
-      instructions: 'Toolhub MCP controls the built-in BA, UI/UX, and Developer agents and any saved custom agent cards. Use agent_team_list to inspect cards and IDs; agent_card_save and agent_card_delete to manage cards; agent_run for one agent; agent_team_run for built-in role handoffs; agent_team_parallel_run for independent built-in analysis; and agent_multi_run for up to six independent tasks assigned to any registered agent. MCP access does not expose the OpenAI API key. Results describe agent output only; do not claim external actions were performed.',
+      instructions: 'Toolhub MCP controls the built-in BA, UI/UX, and Developer agents and saved custom agent cards. Use designer_graph_get to inspect the saved UI/UX graph and designer_graph_run_node to execute one of its active AI Agent nodes. Use agent_team_list to inspect cards and IDs; agent_run for one agent; agent_team_run for built-in handoffs; agent_team_parallel_run or agent_multi_run for independent tasks. MCP access does not expose the OpenAI API key. Results describe agent output only; do not claim external actions were performed.',
     });
   }
 

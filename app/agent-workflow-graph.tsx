@@ -2,7 +2,7 @@
 // The graph canvas owns pointer panning and keyboard shortcuts; SVG links are keyboard-focusable controls.
 /* oxlint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex, jsx-a11y/prefer-tag-over-role */
 
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import { ArrowRightLeft, BookOpen, Bot, Check, ChevronDown, CircleCheck, FileText, Pencil, Power, Shapes, Ticket, Trash2, Workflow, Wrench } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -115,6 +115,10 @@ function isGraphLink(value: unknown): value is GraphLink {
   return typeof link.id === 'string' && typeof link.source === 'string' && typeof link.target === 'string' && link.source !== link.target;
 }
 
+function savedGraphDocument(nodes: GraphNode[], links: GraphLink[], screenContextsSeeded: boolean, screenContextVersion: number) {
+  return { nodes: nodes.map(({ lastOutput: _lastOutput, ...node }) => node), links, screenContextsSeeded, screenContextVersion };
+}
+
 function linkPath(source: GraphNode, target: GraphNode) {
   return curve({ x: source.x + nodeWidth, y: source.y + nodeWidth / 2 }, { x: target.x, y: target.y + nodeWidth / 2 });
 }
@@ -132,6 +136,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [screenContextVersion, setScreenContextVersion] = useState(0);
   const [screenContextError, setScreenContextError] = useState('');
   const [screenContextRetry, setScreenContextRetry] = useState(0);
+  const [graphError, setGraphError] = useState('');
   const [selectedLink, setSelectedLink] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ source: string; point: { x: number; y: number }; target: string | null } | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -161,6 +166,12 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
   const [tagPickerIndex, setTagPickerIndex] = useState(0);
   const [tagPreview, setTagPreview] = useState<{ name: string; x: number; y: number } | null>(null);
   const nodesRef = useRef<GraphNode[]>([]);
+  const graphRevisionRef = useRef(0);
+  const lastSavedGraphRef = useRef('');
+  const pendingGraphRef = useRef<{ serialized: string; document: ReturnType<typeof savedGraphDocument> } | null>(null);
+  const savingGraphRef = useRef(false);
+  const graphServerReadyRef = useRef(false);
+  const outputCursorRef = useRef('1970-01-01T00:00:00.000Z');
   const canvasRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const contextFileRef = useRef<HTMLInputElement>(null);
@@ -177,26 +188,55 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   useEffect(() => {
     let cancelled = false;
-    queueMicrotask(() => {
+    async function loadGraph() {
+      let savedNodes: GraphNode[] = [];
+      let savedLinks: GraphLink[] = [];
+      let seeded = false;
+      let version = 0;
       if (cancelled) return;
       try {
         const saved = localStorage.getItem(storageKey) || localStorage.getItem(previousStorageKey);
         if (saved) {
           const graph = JSON.parse(saved) as { nodes?: unknown; links?: unknown; pan?: { x?: unknown; y?: unknown }; screenContextsSeeded?: boolean; screenContextVersion?: number };
-          const savedNodes = Array.isArray(graph.nodes) ? graph.nodes.filter(isGraphNode).slice(0, 100).map(normalizeNode) : [];
+          savedNodes = Array.isArray(graph.nodes) ? graph.nodes.filter(isGraphNode).slice(0, 100).map(normalizeNode) : [];
           const nodeIds = new Set(savedNodes.map(node => node.id));
-          setNodes(savedNodes);
-          setLinks(Array.isArray(graph.links) ? graph.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300).map(link => ({ ...link, command: 'input' as const })) : []);
-          setScreenContextsSeeded(graph.screenContextsSeeded === true);
-          setScreenContextVersion(graph.screenContextVersion === 2 ? 2 : graph.screenContextsSeeded ? 1 : 0);
+          savedLinks = Array.isArray(graph.links) ? graph.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300).map(link => ({ ...link, command: 'input' as const })) : [];
+          seeded = graph.screenContextsSeeded === true;
+          version = graph.screenContextVersion === 2 ? 2 : seeded ? 1 : 0;
           if (Number.isFinite(graph.pan?.x) && Number.isFinite(graph.pan?.y)) setPan({ x: graph.pan!.x as number, y: graph.pan!.y as number });
         } else {
           const previous = JSON.parse(localStorage.getItem(legacyStorageKey) || '[]') as unknown;
-          if (Array.isArray(previous)) setNodes(previous.filter(isGraphNode).slice(0, 100).map(normalizeNode));
+          if (Array.isArray(previous)) savedNodes = previous.filter(isGraphNode).slice(0, 100).map(normalizeNode);
         }
       } catch { /* Start with an empty draft if local storage is unavailable. */ }
+      try {
+        const response = await fetch('/api/designer-graph', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Graph could not be loaded from the server.');
+        const result = await response.json() as { document?: { nodes?: unknown; links?: unknown; screenContextsSeeded?: boolean; screenContextVersion?: number } | null; revision?: number; outputs?: Record<string, string> };
+        if (cancelled) return;
+        graphServerReadyRef.current = true;
+        graphRevisionRef.current = Number(result.revision) || 0;
+        if (result.document) {
+          const document = result.document;
+          const localOutputs = new Map(savedNodes.map(node => [node.id, node.lastOutput]));
+          savedNodes = Array.isArray(document.nodes) ? document.nodes.filter(isGraphNode).slice(0, 100).map(normalizeNode).map(node => ({ ...node, lastOutput: result.outputs?.[node.id] || localOutputs.get(node.id) || '' })) : [];
+          const nodeIds = new Set(savedNodes.map(node => node.id));
+          savedLinks = Array.isArray(document.links) ? document.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300).map(link => ({ ...link, command: 'input' as const })) : [];
+          seeded = document.screenContextsSeeded === true;
+          version = document.screenContextVersion === 2 ? 2 : seeded ? 1 : 0;
+          lastSavedGraphRef.current = JSON.stringify(savedGraphDocument(savedNodes, savedLinks, seeded, version));
+        }
+      } catch {
+        if (cancelled) return;
+        setGraphError('Graph is available locally, but server sync is unavailable.');
+      }
+      setNodes(savedNodes);
+      setLinks(savedLinks);
+      setScreenContextsSeeded(seeded);
+      setScreenContextVersion(version);
       setLoaded(true);
-    });
+    }
+    void loadGraph();
     return () => { cancelled = true; };
   }, []);
 
@@ -204,9 +244,59 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
 
   useEffect(() => {
     if (!loaded) return;
-    try { localStorage.setItem(storageKey, JSON.stringify({ nodes, links, pan, screenContextsSeeded, screenContextVersion })); syncDesignerHandoffDeliveries(); }
-    catch { /* The graph remains usable for this session. */ }
+    const timer = window.setTimeout(() => {
+      try { localStorage.setItem(storageKey, JSON.stringify({ nodes, links, pan, screenContextsSeeded, screenContextVersion })); syncDesignerHandoffDeliveries(); }
+      catch { /* The graph remains usable for this session. */ }
+    }, 800);
+    return () => window.clearTimeout(timer);
   }, [nodes, links, pan, loaded, screenContextsSeeded, screenContextVersion]);
+
+  const flushGraphSave = useCallback(async () => {
+    if (savingGraphRef.current || !graphServerReadyRef.current) return;
+    savingGraphRef.current = true;
+    try {
+      while (pendingGraphRef.current) {
+        const pending = pendingGraphRef.current;
+        pendingGraphRef.current = null;
+        const response = await fetch('/api/designer-graph', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ document: pending.document, expectedRevision: graphRevisionRef.current }) });
+        const result = await response.json() as { revision?: number; error?: string };
+        if (!response.ok || typeof result.revision !== 'number') throw new Error(result.error || 'Unable to save graph.');
+        graphRevisionRef.current = result.revision;
+        lastSavedGraphRef.current = pending.serialized;
+        setGraphError('');
+      }
+    } catch (error) {
+      pendingGraphRef.current = null;
+      setGraphError(error instanceof Error ? error.message : 'Unable to save graph.');
+    } finally { savingGraphRef.current = false; }
+  }, []);
+
+  useEffect(() => {
+    if (!loaded || !graphServerReadyRef.current) return;
+    const document = savedGraphDocument(nodes, links, screenContextsSeeded, screenContextVersion);
+    const serialized = JSON.stringify(document);
+    if (serialized === lastSavedGraphRef.current) return;
+    const timer = window.setTimeout(() => { pendingGraphRef.current = { document, serialized }; void flushGraphSave(); }, 800);
+    return () => window.clearTimeout(timer);
+  }, [nodes, links, loaded, screenContextsSeeded, screenContextVersion, flushGraphSave]);
+
+  useEffect(() => {
+    if (!loaded || !graphServerReadyRef.current) return;
+    const refresh = async () => {
+      if (document.visibilityState === 'hidden') return;
+      try {
+        const url = `/api/designer-graph/outputs?since=${encodeURIComponent(outputCursorRef.current)}`;
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json() as { outputs?: Record<string, string>; cursor?: string };
+        if (!data.outputs) return;
+        setNodes(current => current.map(node => data.outputs?.[node.id] && data.outputs[node.id] !== node.lastOutput ? { ...node, lastOutput: data.outputs[node.id] } : node));
+        if (data.cursor) outputCursorRef.current = data.cursor;
+      } catch { /* The saved output remains visible if refresh is unavailable. */ }
+    };
+    const timer = window.setInterval(() => { void refresh(); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [loaded]);
 
   useEffect(() => {
     if (!loaded || screenContextVersion >= 2) return;
@@ -332,7 +422,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
     setRunningAgent(true);
     setOutputError('');
     try {
-      const response = await fetch('/api/graph-agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: input.content, instructions: node.instructionPrompt, outputSchema: format.schema }) });
+      const response = await fetch('/api/graph-agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nodeId: node.id, message: input.content, instructions: node.instructionPrompt, outputSchema: format.schema }) });
       const data = await response.json() as { result?: { content: string }; error?: string };
       if (!response.ok || !data.result?.content) throw new Error(data.error || 'AI Agent returned no output.');
       const content = JSON.stringify(JSON.parse(data.result.content) as unknown, null, 2);
@@ -539,7 +629,7 @@ export function AgentWorkflowGraph({ onOpenAgentCard }: { onOpenAgentCard: () =>
       onDragOver={event => { if (event.dataTransfer.types.includes('application/x-toolhub-graph-node')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragOver(true); } }}
       onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOver(false); }}
       onDrop={event => { setDragOver(false); const kind = event.dataTransfer.getData('application/x-toolhub-graph-node'); if (kind !== 'workflow' && kind !== 'context' && kind !== 'agent' && kind !== 'tool-calling' && kind !== 'human-approval' && kind !== 'skill' && kind !== 'agent-handoff') return; event.preventDefault(); const box = event.currentTarget.getBoundingClientRect(); addNode(kind, { x: event.clientX - box.left - pan.x - nodeWidth / 2, y: event.clientY - box.top - pan.y - nodeWidth / 2 }); }}>
-      {screenContextError && <div className="workflow-graph-context-error" role="alert">{screenContextError} <button type="button" onClick={() => setScreenContextRetry(value => value + 1)}>Retry</button></div>}
+      {(graphError || screenContextError) && <div className="workflow-graph-context-error" role="alert">{graphError || screenContextError}{screenContextError && <button type="button" onClick={() => setScreenContextRetry(value => value + 1)}>Retry</button>}</div>}
       <div ref={stageRef} className="workflow-graph-stage" style={{ minHeight: stageHeight, minWidth: stageWidth, transform: `translate3d(${pan.x}px, ${pan.y}px, 0)` }}>
         {loaded && nodes.length === 0 && <div className="workflow-graph-empty"><Workflow size={26}/><strong>Start with a node</strong><span>Click or drag a node from the sidebar, or press +.</span></div>}
         <svg className="workflow-graph-links" aria-label="Workflow links">

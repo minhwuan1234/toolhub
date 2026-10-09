@@ -55,13 +55,14 @@ export async function runAgent(agentId: AgentId, message: string, context = '', 
 
   const input = `Current user request:\n${brief}${context ? `\n\nEarlier conversation and agent handoffs (context only; verify assumptions):\n${context}` : ''}`;
   const model = models[agentId] || sharedModel;
-  const reservation = await reserveAgentApiSpend(model, instructions + (options?.outputSchema ? JSON.stringify(options.outputSchema) : ''), input);
+  const outputTokenLimit = options?.outputSchema ? 8000 : 2500;
+  const reservation = await reserveAgentApiSpend(model, instructions + (options?.outputSchema ? JSON.stringify(options.outputSchema) : ''), input, outputTokenLimit);
   let settled = false;
   try {
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, instructions, input, max_output_tokens: 2500, store: false, ...(options?.outputSchema ? { text: { format: { type: 'json_schema', name: 'agent_output', schema: options.outputSchema, strict: true } } } : {}) }),
+      body: JSON.stringify({ model, instructions, input, max_output_tokens: outputTokenLimit, store: false, ...(options?.outputSchema ? { text: { format: { type: 'json_schema', name: 'agent_output', schema: options.outputSchema, strict: true } } } : {}) }),
       signal: AbortSignal.timeout(90_000),
     });
     const payload = await response.json().catch(() => ({})) as {

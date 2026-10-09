@@ -12,6 +12,8 @@ Each AI Agent node has an Agent card. Admins can edit the three built-in cards a
 
 External MCP clients connect to `https://<your-toolhub-domain>/api/mcp` using Streamable HTTP and an `Authorization: Bearer <MCP_SERVER_TOKEN>` header. Set a strong `MCP_SERVER_TOKEN` in the Toolhub service's Railway Variables and use the same value in the MCP client. MCP grants access to the documented Toolhub agent tools; it does not expose the OpenAI key or unrestricted access to the server or database.
 
+The UI/UX graph now saves its nodes, links, context tags, and AI Agent configuration in PostgreSQL. Existing browser graphs are copied to the server when an admin opens the screen. Changes save after 800 ms without edits, so dragging a node does not write to the database on every pointer move. AI Agent outputs are stored separately and appear in the Output panel after a run. `designer_graph_get` reads the saved graph and outputs through MCP; `designer_graph_run_node` accepts a saved active AI Agent `node_id`, resolves only the tags referenced in its input from connected Context Builder nodes, runs the configured model, and saves its output. A Receive handoff with a test document can supply input to MCP runs; live Toolhub chat handoff data remains browser-local. The graph screen requires an admin session and the MCP tools require `MCP_SERVER_TOKEN`.
+
 ## Railway setup
 
 In the **toolhub** service's Variables tab (not the Postgres service), configure:

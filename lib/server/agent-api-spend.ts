@@ -3,7 +3,6 @@ import type { PoolClient } from 'pg';
 import { getDatabase } from './database';
 
 export const AGENT_API_BUDGET_MICRO_USD = 5_000_000;
-const OUTPUT_TOKEN_LIMIT = 2500;
 const LUNA_PRICES = { input: 0.20, cached: 0.02, cacheWrite: 0.25, output: 1.20 };
 
 type ResponseUsage = {
@@ -56,10 +55,10 @@ export async function getAgentApiSpend() {
   });
 }
 
-export async function reserveAgentApiSpend(model: string, instructions: string, input: string) {
+export async function reserveAgentApiSpend(model: string, instructions: string, input: string, outputTokenLimit = 2500) {
   const prices = priceFor(model);
   // UTF-8 bytes conservatively bound input tokens. Include cache-write and long-prompt margins.
-  const reservedMicroUsd = Math.ceil(Buffer.byteLength(instructions + input, 'utf8') * prices.cacheWrite * 2 + OUTPUT_TOKEN_LIMIT * prices.output * 1.5 + 100);
+  const reservedMicroUsd = Math.ceil(Buffer.byteLength(instructions + input, 'utf8') * prices.cacheWrite * 2 + outputTokenLimit * prices.output * 1.5 + 100);
   const id = randomUUID();
   await withSpendLock(async client => {
     const result = await client.query('SELECT spent_micro_usd, reserved_micro_usd FROM agent_api_spend WHERE id = 1');
