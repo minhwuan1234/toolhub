@@ -109,7 +109,7 @@ function tools() {
     {
       name: 'agent_card_save',
       description: 'Create or update an agent card in the shared workspace. The saved card becomes callable by agent_run and agent_multi_run.',
-      inputSchema: { type: 'object', properties: { card: { type: 'object', properties: { id: { type: 'string', description: 'Use ba, designer, developer, or custom- followed by a UUID for a new agent.' }, name: { type: 'string' }, role: { type: 'string' }, mission: { type: 'string' }, responsibilities: { type: 'string' }, inputs: { type: 'string' }, outputs: { type: 'string' }, collaboration: { type: 'string' }, useDesignGuidelines: { type: 'boolean' }, toolIds: { type: 'array', items: { type: 'string' } }, x: { type: 'number' }, y: { type: 'number' } }, required: ['id', 'name', 'role', 'mission', 'responsibilities', 'inputs', 'outputs', 'collaboration', 'useDesignGuidelines', 'x', 'y'], additionalProperties: false } }, required: ['card'], additionalProperties: false },
+      inputSchema: { type: 'object', properties: { card: { type: 'object', properties: { id: { type: 'string', description: 'Use ba, designer, developer, or custom- followed by a UUID for a new agent.' }, name: { type: 'string' }, role: { type: 'string' }, mission: { type: 'string' }, responsibilities: { type: 'string' }, inputs: { type: 'string' }, outputs: { type: 'string' }, collaboration: { type: 'string' }, useDesignGuidelines: { type: 'boolean' }, toolIds: { type: 'array', items: { type: 'string' } }, x: { type: 'number' }, y: { type: 'number' } }, required: ['id', 'name', 'role', 'mission', 'responsibilities', 'useDesignGuidelines', 'x', 'y'], additionalProperties: false } }, required: ['card'], additionalProperties: false },
     },
     {
       name: 'agent_card_delete',

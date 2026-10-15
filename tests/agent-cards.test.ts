@@ -33,6 +33,7 @@ test('MCP discovers a saved custom card and runs its latest instructions with pe
     assert.deepEqual(result.structuredContent?.result, { agentId: card.id, name: card.name, content: 'Research result' });
     assert.match(requests[0].instructions, /Validate a revised customer requirement/);
     assert.match(requests[0].instructions, /UI\/UX Designer/);
+    assert.doesNotMatch(requests[0].instructions, /Expected inputs:|Expected outputs:|Collaboration:/);
     const unknown = await invokeMcpTool('agent_run', { agent_id: 'custom-ffffffff-ffff-ffff-ffff-ffffffffffff', message: 'Review the signup flow' });
     assert.equal(unknown.isError, true);
     assert.equal(requests.length, 1, 'Unknown cards must not trigger model requests');
@@ -51,4 +52,9 @@ test('Agent cards reject invalid IDs and empty responsibilities before persisten
   assert.throws(() => validateAgentCard({ ...defaultAgentCards[0], id: 'arbitrary-id' }), /Invalid/);
   assert.throws(() => validateAgentCard({ ...defaultAgentCards[0], responsibilities: '   ' }), /responsibilities/);
   assert.throws(() => validateAgentCard({ ...defaultAgentCards[0], x: Infinity }), /position/);
+  const { inputs: _inputs, outputs: _outputs, collaboration: _collaboration, ...withoutRemovedFields } = defaultAgentCards[0];
+  const card = validateAgentCard(withoutRemovedFields);
+  assert.equal(card.inputs, '');
+  assert.equal(card.outputs, '');
+  assert.equal(card.collaboration, '');
 });

@@ -49,12 +49,15 @@ export function validateAgentCard(value: unknown): AgentCard {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Agent card must be an object.');
   const card = value as Record<string, unknown>;
   if (typeof card.id !== 'string' || !(/^(ba|designer|developer)$/.test(card.id) || /^custom-[0-9a-f-]{36}$/.test(card.id))) throw new Error('Invalid agent card ID.');
-  const fields = { name: 80, role: 80, mission: 1000, responsibilities: 2000, inputs: 1000, outputs: 1000, collaboration: 1000 } as const;
+  const fields = { name: 80, role: 80, mission: 1000, responsibilities: 2000 } as const;
   for (const [key, limit] of Object.entries(fields)) {
     if (typeof card[key] !== 'string' || !card[key].trim() || card[key].length > limit) throw new Error(`${key} must be 1–${limit} characters.`);
+  }
+  for (const key of ['inputs', 'outputs', 'collaboration'] as const) {
+    if (card[key] !== undefined && (typeof card[key] !== 'string' || card[key].length > 1000)) throw new Error(`${key} must be at most 1,000 characters.`);
   }
   if (typeof card.useDesignGuidelines !== 'boolean') throw new Error('useDesignGuidelines must be true or false.');
   if (card.toolIds !== undefined && (!Array.isArray(card.toolIds) || card.toolIds.length > 20 || card.toolIds.some(id => typeof id !== 'string') || new Set(card.toolIds).size !== card.toolIds.length)) throw new Error('toolIds must be a list of unique tool IDs.');
   if (typeof card.x !== 'number' || !Number.isFinite(card.x) || Math.abs(card.x) > 10000 || typeof card.y !== 'number' || !Number.isFinite(card.y) || Math.abs(card.y) > 10000) throw new Error('Agent card position is invalid.');
-  return { id: card.id, name: (card.name as string).trim(), role: (card.role as string).trim(), mission: (card.mission as string).trim(), responsibilities: (card.responsibilities as string).trim(), inputs: (card.inputs as string).trim(), outputs: (card.outputs as string).trim(), collaboration: (card.collaboration as string).trim(), useDesignGuidelines: card.useDesignGuidelines, toolIds: (card.toolIds as string[] | undefined) ?? [], x: card.x, y: card.y };
+  return { id: card.id, name: (card.name as string).trim(), role: (card.role as string).trim(), mission: (card.mission as string).trim(), responsibilities: (card.responsibilities as string).trim(), inputs: typeof card.inputs === 'string' ? card.inputs.trim() : '', outputs: typeof card.outputs === 'string' ? card.outputs.trim() : '', collaboration: typeof card.collaboration === 'string' ? card.collaboration.trim() : '', useDesignGuidelines: card.useDesignGuidelines, toolIds: (card.toolIds as string[] | undefined) ?? [], x: card.x, y: card.y };
 }

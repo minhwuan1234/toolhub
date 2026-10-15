@@ -12,9 +12,6 @@ const fields = [
   { key: 'role', label: 'Role', hint: 'For example, Business Analyst', max: 80 },
   { key: 'mission', label: 'Mission', hint: 'The main outcome this agent is responsible for', max: 1000 },
   { key: 'responsibilities', label: 'Responsibilities', hint: 'What this agent should do', max: 2000 },
-  { key: 'inputs', label: 'Inputs', hint: 'Information this agent needs', max: 1000 },
-  { key: 'outputs', label: 'Outputs', hint: 'What it should hand off', max: 1000 },
-  { key: 'collaboration', label: 'Collaboration', hint: 'How it works with other agents', max: 1000 },
 ] as const;
 
 type ToolInfo = typeof toolCatalog[number];
