@@ -1,8 +1,9 @@
 import { getAuth } from '@/lib/server/auth';
 import { runAgent } from '@/lib/agent-team';
 import { validateStructuredOutput } from '@/lib/structured-output';
-import { getUnconsumedGraphFeedback, markGraphFeedbackConsumed, saveDesignerGraphOutput } from '@/lib/server/designer-graph';
+import { getDesignerGraph, getUnconsumedGraphFeedback, markGraphFeedbackConsumed, saveDesignerGraphOutput } from '@/lib/server/designer-graph';
 import { maxGraphAgentInputCharacters } from '@/lib/context-tags';
+import { getAgentCard } from '@/lib/server/agent-cards';
 
 export async function POST(request: Request) {
   try {
@@ -14,16 +15,20 @@ export async function POST(request: Request) {
     if (Number(request.headers.get('content-length') || 0) > 300000) return Response.json({ error: 'Request is too large.' }, { status: 413 });
     const raw = await request.text();
     if (raw.length > 300000) return Response.json({ error: 'Request is too large.' }, { status: 413 });
-    const body = JSON.parse(raw) as { message?: unknown; instructions?: unknown; outputSchema?: unknown; nodeId?: unknown };
+    const body = JSON.parse(raw) as { message?: unknown; instructions?: unknown; outputSchema?: unknown; nodeId?: unknown; agentId?: unknown };
+    const agentId = body.agentId === undefined ? 'designer' : body.agentId;
+    if (typeof agentId !== 'string' || !await getAgentCard(agentId)) return Response.json({ error: 'Agent card not found.' }, { status: 404 });
     if (typeof body.message !== 'string' || body.message.trim().length < 3 || body.message.length > maxGraphAgentInputCharacters) return Response.json({ error: 'Graph input must be 3–100,000 characters.' }, { status: 400 });
     if (body.instructions !== undefined && (typeof body.instructions !== 'string' || body.instructions.length > 4000)) return Response.json({ error: 'Instruction prompt is too long.' }, { status: 400 });
     const output = validateStructuredOutput(JSON.stringify(body.outputSchema ?? null));
     if (!output.ok) return Response.json({ error: output.error }, { status: 400 });
     if (typeof body.nodeId !== 'string' || !body.nodeId || body.nodeId.length > 100) return Response.json({ error: 'AI Agent node ID is required.' }, { status: 400 });
+    const { document } = await getDesignerGraph(agentId);
+    if (!document?.nodes.some(node => node.id === body.nodeId && node.kind === 'agent' && node.active !== false)) return Response.json({ error: 'AI Agent node does not belong to this graph.' }, { status: 400 });
     const feedback = await getUnconsumedGraphFeedback(body.nodeId);
     const message = feedback ? `${body.message}\n\nHuman review feedback for this revision:\n${feedback.feedback}` : body.message;
-    const result = await runAgent('designer', message, '', { outputSchema: output.schema, additionalInstructions: typeof body.instructions === 'string' ? body.instructions : '', graphInput: true });
-    await saveDesignerGraphOutput(body.nodeId, JSON.stringify(JSON.parse(result.content) as unknown, null, 2));
+    const result = await runAgent(agentId, message, '', { outputSchema: output.schema, additionalInstructions: typeof body.instructions === 'string' ? body.instructions : '', graphInput: true });
+    await saveDesignerGraphOutput(body.nodeId, JSON.stringify(JSON.parse(result.content) as unknown, null, 2), agentId);
     if (feedback) await markGraphFeedbackConsumed(feedback.id);
     return Response.json({ result }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {

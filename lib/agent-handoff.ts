@@ -9,6 +9,7 @@ export const agentOutputsChangedEvent = 'toolhub:agent-outputs-changed';
 export const handoffDeliveriesStorageKey = 'toolhub:handoff-deliveries:v1';
 export const handoffDeliveriesChangedEvent = 'toolhub:handoff-deliveries-changed';
 const designerGraphStorageKey = 'toolhub:designer-graph:v3';
+const graphStorageKey = (agentId: string) => agentId === 'designer' ? designerGraphStorageKey : `toolhub:agent-graph:${agentId}:v1`;
 
 export function routesForAgent(links: AgentLink[], agentId: string) {
   return {
@@ -41,7 +42,7 @@ export function saveAgentOutput(output: AgentOutputSnapshot) {
     const next = [...previous.filter(item => item.agentId !== output.agentId), output].slice(-30);
     localStorage.setItem(agentOutputsStorageKey, JSON.stringify(next));
     window.dispatchEvent(new Event(agentOutputsChangedEvent));
-    if (output.agentId === 'designer') syncDesignerHandoffDeliveries();
+    syncAgentHandoffDeliveries(output.agentId);
   } catch { /* Chat still works if local storage is unavailable. */ }
 }
 
@@ -53,10 +54,14 @@ export function readHandoffDeliveries(): AgentHandoffDelivery[] {
 }
 
 export function deliveriesForDesigner(links: AgentLink[], outputs: AgentOutputSnapshot[], sendNodeIds: string[]): AgentHandoffDelivery[] {
-  const output = outputs.find(item => item.agentId === 'designer');
+  return deliveriesForAgent('designer', links, outputs, sendNodeIds);
+}
+
+export function deliveriesForAgent(agentId: string, links: AgentLink[], outputs: AgentOutputSnapshot[], sendNodeIds: string[]): AgentHandoffDelivery[] {
+  const output = outputs.find(item => item.agentId === agentId);
   if (!output) return [];
-  return sendNodeIds.flatMap(handoffNodeId => routesForAgent(links, 'designer').outgoing.map(targetAgentId => ({
-    sourceAgentId: 'designer', targetAgentId, handoffNodeId, runId: output.runId, content: output.content, createdAt: output.createdAt,
+  return sendNodeIds.flatMap(handoffNodeId => routesForAgent(links, agentId).outgoing.map(targetAgentId => ({
+    sourceAgentId: agentId, targetAgentId, handoffNodeId, runId: output.runId, content: output.content, createdAt: output.createdAt,
   })));
 }
 
@@ -80,12 +85,16 @@ export function handoffContextForAgent(agentId: string, links: AgentLink[], outp
 }
 
 export function syncDesignerHandoffDeliveries() {
+  syncAgentHandoffDeliveries('designer');
+}
+
+export function syncAgentHandoffDeliveries(agentId: string) {
   try {
-    const graph = JSON.parse(localStorage.getItem(designerGraphStorageKey) || '{}') as { nodes?: Array<{ id?: unknown; kind?: unknown; handoffMode?: unknown; active?: unknown }>; links?: Array<{ source?: unknown; target?: unknown; command?: unknown }> };
+    const graph = JSON.parse(localStorage.getItem(graphStorageKey(agentId)) || '{}') as { nodes?: Array<{ id?: unknown; kind?: unknown; handoffMode?: unknown; active?: unknown }>; links?: Array<{ source?: unknown; target?: unknown; command?: unknown }> };
     const approvalIds = new Set(Array.isArray(graph.nodes) ? graph.nodes.filter(node => node.kind === 'human-approval' && typeof node.id === 'string').map(node => node.id as string) : []);
     const gatedIds = new Set(Array.isArray(graph.links) ? graph.links.filter(link => approvalIds.has(String(link.source)) && link.command === 'approve' && typeof link.target === 'string').map(link => link.target as string) : []);
     const sendNodeIds = Array.isArray(graph.nodes) ? graph.nodes.filter(node => node.kind === 'agent-handoff' && node.handoffMode === 'send' && node.active !== false && typeof node.id === 'string' && !gatedIds.has(node.id)).map(node => node.id as string) : [];
-    const next = [...readHandoffDeliveries().filter(delivery => delivery.sourceAgentId !== 'designer' || gatedIds.has(delivery.handoffNodeId) && delivery.runId.startsWith('approval:')), ...deliveriesForDesigner(readAgentLinks(), readAgentOutputs(), sendNodeIds)];
+    const next = [...readHandoffDeliveries().filter(delivery => delivery.sourceAgentId !== agentId || gatedIds.has(delivery.handoffNodeId) && delivery.runId.startsWith('approval:')), ...deliveriesForAgent(agentId, readAgentLinks(), readAgentOutputs(), sendNodeIds)];
     const value = JSON.stringify(next);
     if (localStorage.getItem(handoffDeliveriesStorageKey) !== value) {
       localStorage.setItem(handoffDeliveriesStorageKey, value);
@@ -95,9 +104,13 @@ export function syncDesignerHandoffDeliveries() {
 }
 
 export function deliverApprovedDesignerHandoff(handoffNodeId: string, runId: string, content: string) {
+  deliverApprovedAgentHandoff('designer', handoffNodeId, runId, content);
+}
+
+export function deliverApprovedAgentHandoff(agentId: string, handoffNodeId: string, runId: string, content: string) {
   try {
     const createdAt = new Date().toISOString();
-    const deliveries = routesForAgent(readAgentLinks(), 'designer').outgoing.map(targetAgentId => ({ sourceAgentId: 'designer', targetAgentId, handoffNodeId, runId: `approval:${runId}`, content, createdAt }));
+    const deliveries = routesForAgent(readAgentLinks(), agentId).outgoing.map(targetAgentId => ({ sourceAgentId: agentId, targetAgentId, handoffNodeId, runId: `approval:${runId}`, content, createdAt }));
     const next = [...readHandoffDeliveries().filter(item => item.handoffNodeId !== handoffNodeId), ...deliveries].slice(-100);
     localStorage.setItem(handoffDeliveriesStorageKey, JSON.stringify(next));
     window.dispatchEvent(new Event(handoffDeliveriesChangedEvent));

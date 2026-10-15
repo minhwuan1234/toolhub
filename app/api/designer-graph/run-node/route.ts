@@ -1,5 +1,6 @@
 import { getAuth } from '@/lib/server/auth';
 import { runGraphToNode } from '@/lib/server/designer-graph';
+import { getAgentCard } from '@/lib/server/agent-cards';
 
 export async function POST(request: Request) {
   try {
@@ -11,10 +12,12 @@ export async function POST(request: Request) {
     if (Number(request.headers.get('content-length') || 0) > 100000) return Response.json({ error: 'Request is too large.' }, { status: 413 });
     const raw = await request.text();
     if (raw.length > 100000) return Response.json({ error: 'Request is too large.' }, { status: 413 });
-    const body = JSON.parse(raw) as { nodeId?: unknown; handoffData?: unknown };
+    const body = JSON.parse(raw) as { nodeId?: unknown; handoffData?: unknown; agentId?: unknown };
+    const agentId = body.agentId === undefined ? 'designer' : body.agentId;
+    if (typeof agentId !== 'string' || !await getAgentCard(agentId)) return Response.json({ error: 'Agent card not found.' }, { status: 404 });
     if (typeof body.nodeId !== 'string' || !body.nodeId || body.nodeId.length > 100) return Response.json({ error: 'Graph node ID is required.' }, { status: 400 });
     if (body.handoffData !== undefined && (typeof body.handoffData !== 'object' || !body.handoffData || Array.isArray(body.handoffData) || Object.entries(body.handoffData).length > 20 || Object.entries(body.handoffData).some(([key, value]) => key.length > 100 || typeof value !== 'string' || value.length > 8000))) return Response.json({ error: 'Invalid handoff data.' }, { status: 400 });
-    const result = await runGraphToNode(body.nodeId, body.handoffData as Record<string, string> | undefined);
+    const result = await runGraphToNode(body.nodeId, body.handoffData as Record<string, string> | undefined, agentId);
     return Response.json({ result }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : 'Unable to run this node.' }, { status: 400 });

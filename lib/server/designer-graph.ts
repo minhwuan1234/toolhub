@@ -25,7 +25,22 @@ export type DesignerGraphDocument = {
   screenContextVersion: number;
 };
 
-const graphId = 'uiux';
+export function graphIdForAgent(agentId: string) {
+  if (agentId !== 'ba' && agentId !== 'designer' && agentId !== 'developer' && !/^custom-[0-9a-f-]{36}$/.test(agentId)) throw new Error('Invalid agent ID.');
+  return agentId === 'designer' ? 'uiux' : `agent:${agentId}`;
+}
+
+async function agentIdForGraphNode(nodeId: string): Promise<string> {
+  const { rows } = await getDatabase().query<{ id: string }>(
+    "SELECT id FROM designer_graphs WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(document->'nodes') AS node(value) WHERE node.value->>'id'=$1) LIMIT 1",
+    [nodeId],
+  );
+  const id = rows[0]?.id;
+  if (!id) throw new Error('Graph node not found.');
+  if (id === 'uiux') return 'designer';
+  if (id.startsWith('agent:')) return id.slice(6);
+  throw new Error('Unknown graph.');
+}
 
 export function validateDesignerGraph(value: unknown): DesignerGraphDocument {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Graph document must be an object.');
@@ -45,62 +60,60 @@ export function validateDesignerGraph(value: unknown): DesignerGraphDocument {
   };
 }
 
-export async function getDesignerGraph(): Promise<{ document: DesignerGraphDocument | null; revision: number }> {
-  const { rows } = await getDatabase().query<{ document: DesignerGraphDocument; revision: string }>('SELECT document, revision FROM designer_graphs WHERE id=$1', [graphId]);
+export async function getDesignerGraph(agentId = 'designer'): Promise<{ document: DesignerGraphDocument | null; revision: number }> {
+  const { rows } = await getDatabase().query<{ document: DesignerGraphDocument; revision: string }>('SELECT document, revision FROM designer_graphs WHERE id=$1', [graphIdForAgent(agentId)]);
   const row = rows[0];
   return row ? { document: validateDesignerGraph(row.document), revision: Number(row.revision) } : { document: null, revision: 0 };
 }
 
-export async function saveDesignerGraph(value: unknown, expectedRevision: number): Promise<number> {
+export async function saveDesignerGraph(value: unknown, expectedRevision: number, agentId = 'designer'): Promise<number> {
   const document = validateDesignerGraph(value);
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new Error('Invalid graph revision.');
   if (expectedRevision === 0) {
     const { rows } = await getDatabase().query<{ revision: string }>(
       'INSERT INTO designer_graphs (id, document) VALUES ($1,$2) ON CONFLICT (id) DO NOTHING RETURNING revision',
-      [graphId, document],
+      [graphIdForAgent(agentId), document],
     );
     if (!rows[0]) throw new Error('Graph changed in another session. Reload before saving.');
     return Number(rows[0].revision);
   }
   const { rows } = await getDatabase().query<{ revision: string }>(
     'UPDATE designer_graphs SET document=$3, revision=revision+1, updated_at=now() WHERE id=$1 AND revision=$2 RETURNING revision',
-    [graphId, expectedRevision, document],
+    [graphIdForAgent(agentId), expectedRevision, document],
   );
   if (!rows[0]) throw new Error('Graph changed in another session. Reload before saving.');
   return Number(rows[0].revision);
 }
 
-export async function getDesignerGraphOutputs(): Promise<Record<string, string>> {
-  const { rows } = await getDatabase().query<{ node_id: string; content: string }>('SELECT node_id, content FROM designer_graph_outputs');
+export async function getDesignerGraphOutputs(agentId = 'designer'): Promise<Record<string, string>> {
+  const { rows } = await getDatabase().query<{ node_id: string; content: string }>("SELECT node_id, content FROM designer_graph_outputs WHERE node_id IN (SELECT node.value->>'id' FROM designer_graphs, jsonb_array_elements(document->'nodes') AS node(value) WHERE designer_graphs.id=$1)", [graphIdForAgent(agentId)]);
   return Object.fromEntries(rows.map(row => [row.node_id, row.content]));
 }
 
-export async function getDesignerGraphOutputChanges(since: string): Promise<{ outputs: Record<string, string>; cursor: string }> {
+export async function getDesignerGraphOutputChanges(since: string, agentId = 'designer'): Promise<{ outputs: Record<string, string>; cursor: string }> {
   if (!Number.isFinite(Date.parse(since))) throw new Error('Invalid output cursor.');
   const { rows } = await getDatabase().query<{ node_id: string; content: string; cursor: string }>(
     `SELECT node_id, content, to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor
-     FROM designer_graph_outputs WHERE updated_at > $1::timestamptz ORDER BY updated_at`,
-    [since],
+     FROM designer_graph_outputs WHERE updated_at > $1::timestamptz AND node_id IN (SELECT node.value->>'id' FROM designer_graphs, jsonb_array_elements(document->'nodes') AS node(value) WHERE designer_graphs.id=$2) ORDER BY updated_at`,
+    [since, graphIdForAgent(agentId)],
   );
   return { outputs: Object.fromEntries(rows.map(row => [row.node_id, row.content])), cursor: rows.at(-1)?.cursor || since };
 }
 
-export async function saveDesignerGraphOutput(nodeId: string, content: string): Promise<void> {
+export async function saveDesignerGraphOutput(nodeId: string, content: string, agentId = 'designer'): Promise<void> {
   if (!nodeId || nodeId.length > 100 || content.length > 200000) throw new Error('Graph output exceeds its limit.');
   const client = await getDatabase().connect();
   try {
     await client.query('BEGIN');
+    const { rows } = await client.query<{ document: DesignerGraphDocument }>('SELECT document FROM designer_graphs WHERE id=$1', [graphIdForAgent(agentId)]);
+    if (!rows[0]) throw new Error('Save the graph before running a node.');
+    const graph = validateDesignerGraph(rows[0].document);
+    const source = graph.nodes.find(node => node.id === nodeId);
+    if (!source) throw new Error('Node does not belong to this agent graph.');
     await client.query('INSERT INTO designer_graph_outputs (node_id,content) VALUES ($1,$2) ON CONFLICT (node_id) DO UPDATE SET content=EXCLUDED.content,updated_at=now()', [nodeId, content]);
-    const { rows } = await client.query<{ document: DesignerGraphDocument }>('SELECT document FROM designer_graphs WHERE id=$1', [graphId]);
-    if (rows[0]) {
-      const graph = validateDesignerGraph(rows[0].document);
-      const source = graph.nodes.find(node => node.id === nodeId);
-      if (source) {
-        for (const link of graph.links.filter(link => link.source === nodeId && link.command === 'input')) {
-          const approval = graph.nodes.find(node => node.id === link.target && node.kind === 'human-approval' && node.active !== false);
-          if (approval) await client.query('INSERT INTO designer_graph_approvals (id,source_node_id,approval_node_id,source_name,output) VALUES ($1,$2,$3,$4,$5)', [randomUUID(), nodeId, approval.id, source.name, content]);
-        }
-      }
+    for (const link of graph.links.filter(link => link.source === nodeId && link.command === 'input')) {
+      const approval = graph.nodes.find(node => node.id === link.target && node.kind === 'human-approval' && node.active !== false);
+      if (approval) await client.query('INSERT INTO designer_graph_approvals (id,source_node_id,approval_node_id,source_name,output) VALUES ($1,$2,$3,$4,$5)', [randomUUID(), nodeId, approval.id, source.name, content]);
     }
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; }
@@ -123,7 +136,10 @@ export async function getLatestGraphApproval(approvalNodeId: string): Promise<Gr
     [approvalNodeId],
   );
   const latestApproval = rows[0] || null;
-  const { document } = await getDesignerGraph();
+  let agentId: string;
+  try { agentId = await agentIdForGraphNode(approvalNodeId); }
+  catch (error) { if (error instanceof Error && error.message === 'Graph node not found.') return latestApproval; throw error; }
+  const { document } = await getDesignerGraph(agentId);
   const incoming = document?.links.filter(link => link.target === approvalNodeId && link.command === 'input').map(link => link.source) || [];
   if (!incoming.length) return latestApproval;
   const { rows: outputs } = await getDatabase().query<{ node_id: string; content: string; updated_at: Date }>(
@@ -136,17 +152,20 @@ export async function getLatestGraphApproval(approvalNodeId: string): Promise<Gr
   return { id: `upstream:${output.node_id}`, source_node_id: output.node_id, approval_node_id: approvalNodeId, source_name: source?.name || 'Connected node', output: output.content, status: 'upstream-output', feedback: null, created_at: output.updated_at.toISOString(), decided_at: null };
 }
 
-export async function decideGraphApproval(id: string | null, decision: 'approved' | 'denied', feedback: string, review?: { approvalNodeId: string; sourceNodeId: string; output: string }): Promise<{ targets: string[]; output: string; approvalId: string }> {
+export async function decideGraphApproval(id: string | null, decision: 'approved' | 'denied', feedback: string, review?: { approvalNodeId: string; sourceNodeId: string; output: string }): Promise<{ targets: string[]; output: string; approvalId: string; agentId: string }> {
   if (id && !/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Invalid approval ID.');
   if (!id && (!review || !review.approvalNodeId || !review.sourceNodeId || review.output.length > 200000)) throw new Error('Invalid approval output.');
   if (decision === 'denied' && !feedback.trim()) throw new Error('Feedback is required when denying.');
   if (feedback.length > 4000) throw new Error('Feedback is too long.');
+  const approvalNodeId = id ? (await getDatabase().query<{ approval_node_id: string }>('SELECT approval_node_id FROM designer_graph_approvals WHERE id=$1', [id])).rows[0]?.approval_node_id : review?.approvalNodeId;
+  if (!approvalNodeId) throw new Error('Approval node not found.');
+  const agentId = await agentIdForGraphNode(approvalNodeId);
   const client = await getDatabase().connect();
   try {
     await client.query('BEGIN');
-    const { rows } = await client.query<{ document: DesignerGraphDocument }>('SELECT document FROM designer_graphs WHERE id=$1 FOR UPDATE', [graphId]);
+    const { rows } = await client.query<{ document: DesignerGraphDocument }>('SELECT document FROM designer_graphs WHERE id=$1 FOR UPDATE', [graphIdForAgent(agentId)]);
     const graph = rows[0] ? validateDesignerGraph(rows[0].document) : null;
-    if (!graph) throw new Error('Save the UI/UX graph before reviewing output.');
+    if (!graph) throw new Error('Save the agent graph before reviewing output.');
     let approval: { approval_node_id: string; output: string };
     let approvalId = id;
     if (approvalId) {
@@ -167,7 +186,7 @@ export async function decideGraphApproval(id: string | null, decision: 'approved
     const targets = graph.links.filter(link => link.source === approval.approval_node_id && (decision === 'approved' ? link.command === 'approve' : link.command === 'deny' || link.command === 'loop')).map(link => link.target);
     await client.query('UPDATE designer_graph_approvals SET status=$2, feedback=$3, branch_targets=$4, decided_at=now() WHERE id=$1', [approvalId, decision, decision === 'denied' ? feedback.trim() : null, JSON.stringify(targets)]);
     await client.query('COMMIT');
-    return { targets, output: approval.output, approvalId: approvalId! };
+    return { targets, output: approval.output, approvalId: approvalId!, agentId };
   } catch (error) { await client.query('ROLLBACK'); throw error; }
   finally { client.release(); }
 }
@@ -197,9 +216,9 @@ export function graphRunIncomingLinks(document: DesignerGraphDocument, nodeId: s
   return incoming;
 }
 
-export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', approvedOutput = '', liveHandoffs: Record<string, string> = {}) {
-  const { document } = await getDesignerGraph();
-  if (!document) throw new Error('Save the UI/UX graph before running it through MCP.');
+export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', approvedOutput = '', liveHandoffs: Record<string, string> = {}, agentId = 'designer') {
+  const { document } = await getDesignerGraph(agentId);
+  if (!document) throw new Error('Save the agent graph before running it through MCP.');
   const node = document.nodes.find(item => item.id === nodeId);
   if (!node || node.kind !== 'agent') throw new Error('AI Agent node not found.');
   if (!node.active) throw new Error('AI Agent node is inactive.');
@@ -212,16 +231,16 @@ export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', app
   if (approvedOutput.length > 99000) throw new Error('Approved output exceeds the next agent context limit.');
   const feedback = await getUnconsumedGraphFeedback(node.id);
   const message = feedback ? `${input.content}\n\nHuman review feedback for this revision:\n${feedback.feedback}` : input.content;
-  const result = await runAgent('designer', message, approvedOutput ? `Upstream graph output:\n${approvedOutput}` : '', { outputSchema: format.schema, additionalInstructions: node.instructionPrompt, graphApprovedContext: Boolean(approvedOutput), graphInput: true });
+  const result = await runAgent(agentId, message, approvedOutput ? `Upstream graph output:\n${approvedOutput}` : '', { outputSchema: format.schema, additionalInstructions: node.instructionPrompt, graphApprovedContext: Boolean(approvedOutput), graphInput: true });
   const content = JSON.stringify(JSON.parse(result.content) as unknown, null, 2);
-  await saveDesignerGraphOutput(node.id, content);
+  await saveDesignerGraphOutput(node.id, content, agentId);
   if (feedback) await markGraphFeedbackConsumed(feedback.id);
   return { node_id: node.id, run_id: randomUUID(), result: { ...result, content } };
 }
 
-export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string, string> = {}) {
-  const { document } = await getDesignerGraph();
-  if (!document) throw new Error('Save the UI/UX graph before running a node.');
+export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string, string> = {}, agentId = 'designer') {
+  const { document } = await getDesignerGraph(agentId);
+  if (!document) throw new Error('Save the agent graph before running a node.');
   const nodeById = new Map(document.nodes.map(node => [node.id, node]));
   if (!nodeById.has(nodeId)) throw new Error('Graph node not found.');
   const visiting = new Set<string>();
@@ -249,7 +268,7 @@ export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string
       let output = '';
       if (node.kind === 'agent') {
         const modelContext = previous.filter(item => item.node?.kind === 'agent' || item.node?.kind === 'human-approval' || item.node?.kind === 'agent-handoff' && item.node.handoffMode === 'send').map(item => `${item.node!.name}:\n${item.output}`).join('\n\n');
-        const run = await runStoredGraphAgent(id, '', modelContext, liveHandoffs);
+        const run = await runStoredGraphAgent(id, '', modelContext, liveHandoffs, agentId);
         output = run.result.content;
       } else if (node.kind === 'human-approval') {
         const approval = await getLatestGraphApproval(id);
@@ -266,7 +285,7 @@ export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string
       } else if (node.kind === 'agent-handoff') {
         output = node.handoffMode === 'receive' ? liveHandoffs[id] || (node.useTestDocument ? node.testDocument || '' : '') : previous.map(item => item.output).filter(Boolean).join('\n\n');
       }
-      if (id === nodeId && node.kind !== 'agent' && node.kind !== 'human-approval' && output) await saveDesignerGraphOutput(id, output);
+      if (id === nodeId && node.kind !== 'agent' && node.kind !== 'human-approval' && output) await saveDesignerGraphOutput(id, output, agentId);
       completed.set(id, output);
       return output;
     } finally { visiting.delete(id); }

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CircleCheck, Play } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { graphPreviewDocument } from '@/lib/graph-preview';
-import { deliverApprovedDesignerHandoff } from '@/lib/agent-handoff';
+import { deliverApprovedAgentHandoff } from '@/lib/agent-handoff';
 
 type Approval = { id: string; source_name: string; output: string };
 type ApprovalHistory = Approval & { source_node_id: string; status: 'pending' | 'approved' | 'denied' | 'upstream-output'; feedback: string | null };
@@ -44,7 +44,7 @@ export function GraphRunOutputDialog({ nodeName, output, running, error, onClose
   </Dialog>;
 }
 
-export function HumanApprovalNodeDialog({ nodeId, nodeName, upstreamNodeId, upstreamOutput, upstreamName, onClose }: { nodeId: string; nodeName: string; upstreamNodeId?: string; upstreamOutput?: string; upstreamName?: string; onClose: () => void }) {
+export function HumanApprovalNodeDialog({ agentId, nodeId, nodeName, upstreamNodeId, upstreamOutput, upstreamName, onClose }: { agentId: string; nodeId: string; nodeName: string; upstreamNodeId?: string; upstreamOutput?: string; upstreamName?: string; onClose: () => void }) {
   const [approval, setApproval] = useState<ApprovalHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -76,9 +76,9 @@ export function HumanApprovalNodeDialog({ nodeId, nodeName, upstreamNodeId, upst
     try {
       const body = visibleApproval.status === 'pending' ? { id: visibleApproval.id, decision, feedback: decision === 'denied' ? feedback.trim() : '' } : { nodeId, sourceNodeId: visibleApproval.source_node_id, output: visibleApproval.output, decision, feedback: decision === 'denied' ? feedback.trim() : '' };
       const response = await fetch('/api/designer-graph/approvals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const data = await response.json() as { approvalId?: string; error?: string; errors?: string[]; handoffs?: string[]; handoffOutput?: string };
+      const data = await response.json() as { approvalId?: string; agentId?: string; error?: string; errors?: string[]; handoffs?: string[]; handoffOutput?: string };
       if (!response.ok) throw new Error(data.error || 'Unable to save your decision.');
-      if (decision === 'approved' && data.handoffOutput) for (const target of data.handoffs || []) deliverApprovedDesignerHandoff(target, data.approvalId || visibleApproval.id, data.handoffOutput);
+      if (decision === 'approved' && data.handoffOutput) for (const target of data.handoffs || []) deliverApprovedAgentHandoff(agentId, target, data.approvalId || visibleApproval.id, data.handoffOutput);
       setApproval({ ...visibleApproval, id: data.approvalId || visibleApproval.id, status: decision, feedback: decision === 'denied' ? feedback.trim() : null });
       setDenying(false); setFeedback(''); setNotice(data.errors?.join(' ') || '');
       window.dispatchEvent(new Event('toolhub:graph-output'));
@@ -135,9 +135,9 @@ export function HumanApprovalDialog() {
     setBusy(true); setError('');
     try {
       const response = await fetch('/api/designer-graph/approvals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: approval.id, decision, feedback: decision === 'denied' ? feedback.trim() : '' }) });
-      const data = await response.json() as { error?: string; errors?: string[]; handoffs?: string[]; handoffOutput?: string };
+      const data = await response.json() as { agentId?: string; error?: string; errors?: string[]; handoffs?: string[]; handoffOutput?: string };
       if (!response.ok) throw new Error(data.error || 'Unable to save your decision.');
-      if (decision === 'approved' && data.handoffOutput) for (const nodeId of data.handoffs || []) deliverApprovedDesignerHandoff(nodeId, approval.id, data.handoffOutput);
+      if (decision === 'approved' && data.handoffOutput) for (const nodeId of data.handoffs || []) deliverApprovedAgentHandoff(data.agentId || 'designer', nodeId, approval.id, data.handoffOutput);
       setApproval(null); setDenying(false); setFeedback('');
       setNotice(data.errors?.length ? data.errors.join(' ') : '');
       void refresh();

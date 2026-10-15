@@ -1,5 +1,6 @@
 import { getAuth } from '@/lib/server/auth';
 import { getDesignerGraph, getDesignerGraphOutputs, saveDesignerGraph } from '@/lib/server/designer-graph';
+import { getAgentCard } from '@/lib/server/agent-cards';
 
 const headers = { 'Cache-Control': 'no-store' };
 
@@ -11,7 +12,9 @@ async function admin(request: Request) {
 export async function GET(request: Request) {
   try {
     if (!await admin(request)) return Response.json({ error: 'Admin access required.' }, { status: 403, headers });
-    const [graph, outputs] = await Promise.all([getDesignerGraph(), getDesignerGraphOutputs()]);
+    const agentId = new URL(request.url).searchParams.get('agentId') || 'designer';
+    if (!await getAgentCard(agentId)) return Response.json({ error: 'Agent card not found.' }, { status: 404, headers });
+    const [graph, outputs] = await Promise.all([getDesignerGraph(agentId), getDesignerGraphOutputs(agentId)]);
     return Response.json({ ...graph, outputs }, { headers });
   } catch { return Response.json({ error: 'Unable to load the graph.' }, { status: 503, headers }); }
 }
@@ -21,6 +24,8 @@ export async function PUT(request: Request) {
     const base = process.env.BETTER_AUTH_URL;
     if (!base || request.headers.get('origin') !== new URL(base).origin) return Response.json({ error: 'Invalid request origin.' }, { status: 403, headers });
     if (!await admin(request)) return Response.json({ error: 'Admin access required.' }, { status: 403, headers });
+    const agentId = new URL(request.url).searchParams.get('agentId') || 'designer';
+    if (!await getAgentCard(agentId)) return Response.json({ error: 'Agent card not found.' }, { status: 404, headers });
     if (!request.headers.get('content-type')?.startsWith('application/json')) return Response.json({ error: 'JSON required.' }, { status: 415, headers });
     if (Number(request.headers.get('content-length') || 0) > 2_000_000) return Response.json({ error: 'Graph is too large.' }, { status: 413, headers });
     const raw = await request.text();
@@ -28,7 +33,7 @@ export async function PUT(request: Request) {
     const body = JSON.parse(raw) as { document?: unknown; expectedRevision?: unknown };
     if (typeof body.expectedRevision !== 'number') return Response.json({ error: 'Graph revision is required.' }, { status: 400, headers });
     try {
-      const revision = await saveDesignerGraph(body.document, body.expectedRevision);
+      const revision = await saveDesignerGraph(body.document, body.expectedRevision, agentId);
       return Response.json({ revision }, { headers });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to save graph.';

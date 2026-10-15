@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import type { Pool } from 'pg';
 import { resolveGraphAgentInput } from '../lib/context-tags';
-import { graphRunIncomingLinks, validateDesignerGraph } from '../lib/server/designer-graph';
+import { getDesignerGraph, graphIdForAgent, graphRunIncomingLinks, saveDesignerGraph, validateDesignerGraph } from '../lib/server/designer-graph';
 
 const graph = {
   nodes: [
@@ -48,4 +49,25 @@ void test('Play follows Approve input and holds the Deny branch', () => {
   });
   assert.deepEqual(graphRunIncomingLinks(document, 'next').map(link => link.source), ['approval']);
   assert.throws(() => graphRunIncomingLinks(document, 'denied'), /Deny branch/);
+});
+
+void test('each saved Agent Card has an isolated graph while UI/UX keeps its existing graph', async () => {
+  const globalDatabase = globalThis as typeof globalThis & { toolhubPool?: Pool };
+  const previous = { pool: globalDatabase.toolhubPool, url: process.env.DATABASE_URL };
+  const ids: string[] = [];
+  globalDatabase.toolhubPool = { query: async (_sql: string, values: unknown[]) => { ids.push(String(values[0])); return { rows: _sql.startsWith('INSERT') ? [{ revision: '1' }] : [] }; } } as unknown as Pool;
+  process.env.DATABASE_URL = 'mock-only';
+  try {
+    assert.equal(graphIdForAgent('designer'), 'uiux');
+    assert.equal(graphIdForAgent('ba'), 'agent:ba');
+    assert.equal(graphIdForAgent('custom-2ec45a63-7193-4b5e-9f72-78cf933d3242'), 'agent:custom-2ec45a63-7193-4b5e-9f72-78cf933d3242');
+    assert.throws(() => graphIdForAgent('unknown'), /Invalid agent ID/);
+    await getDesignerGraph('designer');
+    await getDesignerGraph('ba');
+    await saveDesignerGraph(graph, 0, 'developer');
+    assert.deepEqual(ids, ['uiux', 'agent:ba', 'agent:developer']);
+  } finally {
+    globalDatabase.toolhubPool = previous.pool;
+    if (previous.url === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = previous.url;
+  }
 });

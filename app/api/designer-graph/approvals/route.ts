@@ -33,9 +33,9 @@ export async function POST(request: Request) {
     const pendingId = typeof body.id === 'string' ? body.id : null;
     const review = typeof body.nodeId === 'string' && typeof body.sourceNodeId === 'string' && typeof body.output === 'string' ? { approvalNodeId: body.nodeId, sourceNodeId: body.sourceNodeId, output: body.output } : undefined;
     if ((!pendingId && !review) || (body.decision !== 'approved' && body.decision !== 'denied') || (body.feedback !== undefined && typeof body.feedback !== 'string')) return Response.json({ error: 'Invalid decision.' }, { status: 400, headers });
-    const { targets, output, approvalId } = await decideGraphApproval(pendingId, body.decision, typeof body.feedback === 'string' ? body.feedback : '', review);
-    if (body.decision === 'denied') return Response.json({ status: body.decision, targets, approvalId }, { headers });
-    const { document } = await getDesignerGraph();
+    const { targets, output, approvalId, agentId } = await decideGraphApproval(pendingId, body.decision, typeof body.feedback === 'string' ? body.feedback : '', review);
+    if (body.decision === 'denied') return Response.json({ status: body.decision, targets, approvalId, agentId }, { headers });
+    const { document } = await getDesignerGraph(agentId);
     const runs: string[] = [];
     const handoffs: string[] = [];
     const errors: string[] = [];
@@ -44,10 +44,10 @@ export async function POST(request: Request) {
       if (!node?.active) { errors.push(`${node?.name || target} is inactive.`); continue; }
       if (node.kind === 'agent-handoff' && node.handoffMode === 'send') { handoffs.push(target); continue; }
       if (node.kind !== 'agent') { errors.push(`${node.name} has no execution logic yet.`); continue; }
-      try { await runStoredGraphAgent(target, '', output); runs.push(target); }
+      try { await runStoredGraphAgent(target, '', output, {}, agentId); runs.push(target); }
       catch (error) { errors.push(`${node.name}: ${error instanceof Error ? error.message : 'Unable to run.'}`); }
     }
-    return Response.json({ status: body.decision, targets, runs, handoffs, handoffOutput: handoffs.length ? output : undefined, errors, approvalId }, { headers });
+    return Response.json({ status: body.decision, targets, runs, handoffs, handoffOutput: handoffs.length ? output : undefined, errors, approvalId, agentId }, { headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to save approval.';
     return Response.json({ error: message }, { status: message.includes('already been handled') ? 409 : 400, headers });

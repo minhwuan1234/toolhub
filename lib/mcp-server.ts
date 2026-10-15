@@ -132,6 +132,16 @@ function tools() {
       inputSchema: { type: 'object', properties: { node_id: { type: 'string' } }, required: ['node_id'], additionalProperties: false },
     },
     {
+      name: 'agent_graph_get',
+      description: 'Read the saved graph and node outputs belonging to one Agent Card.',
+      inputSchema: { type: 'object', properties: { agent_id: { type: 'string' } }, required: ['agent_id'], additionalProperties: false },
+    },
+    {
+      name: 'agent_graph_run_node',
+      description: 'Run one active AI Agent node in the graph belonging to the specified Agent Card.',
+      inputSchema: { type: 'object', properties: { agent_id: { type: 'string' }, node_id: { type: 'string' } }, required: ['agent_id', 'node_id'], additionalProperties: false },
+    },
+    {
       name: 'agent_team_run',
       description: 'Run BA, UI/UX, and Developer in sequence, passing each result to the next agent.',
       inputSchema: { type: 'object', properties: { message: { type: 'string', minLength: 3, maxLength: 4000 }, context: { type: 'string', maxLength: 12000 } }, required: ['message'], additionalProperties: false },
@@ -218,14 +228,16 @@ export async function invokeMcpTool(name: string, args: Record<string, unknown> 
       return toolResult({ agents: cards.map(card => ({ id: card.id, name: card.name, title: card.role, outcome: card.mission })), cards, configured: Boolean(process.env.OPENAI_API_KEY) });
     } catch { return toolResult({ error: 'Unable to load agent cards.' }, true); }
   }
-  if (name === 'designer_graph_get' || name === 'designer_graph_run_node') {
+  if (name === 'designer_graph_get' || name === 'designer_graph_run_node' || name === 'agent_graph_get' || name === 'agent_graph_run_node') {
     try {
-      if (name === 'designer_graph_get') {
-        const [graph, outputs] = await Promise.all([getDesignerGraph(), getDesignerGraphOutputs()]);
+      const agentId = name.startsWith('designer_') ? 'designer' : args.agent_id;
+      if (typeof agentId !== 'string' || !await getAgentCard(agentId)) throw new Error('Agent card not found.');
+      if (name === 'designer_graph_get' || name === 'agent_graph_get') {
+        const [graph, outputs] = await Promise.all([getDesignerGraph(agentId), getDesignerGraphOutputs(agentId)]);
         return toolResult({ ...graph, outputs });
       }
       if (typeof args.node_id !== 'string') throw new Error('node_id must be a string.');
-      return toolResult(await runStoredGraphAgent(args.node_id));
+      return toolResult(await runStoredGraphAgent(args.node_id, '', '', {}, agentId));
     } catch (error) { return toolResult({ error: error instanceof Error ? error.message : 'Graph request failed.' }, true); }
   }
   if (name === 'agent_card_save' || name === 'agent_card_delete') {
