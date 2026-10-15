@@ -8,6 +8,7 @@ export type AgentCard = {
   outputs: string;
   collaboration: string;
   useDesignGuidelines: boolean;
+  toolIds: string[];
   x: number;
   y: number;
 };
@@ -20,7 +21,7 @@ export const defaultAgentCards: AgentCard[] = [
     inputs: 'Customer requests, feedback, and existing product context.',
     outputs: 'Validated requirements, proposed solutions, tradeoffs, and a clear handoff for design and development.',
     collaboration: 'Work with the UI/UX Designer and Developer to resolve questions and verify that the solution meets customer needs.',
-    useDesignGuidelines: false, x: 60, y: 220,
+    useDesignGuidelines: false, toolIds: [], x: 60, y: 220,
   },
   {
     id: 'designer', name: 'UI/UX Agent', role: 'UI/UX Designer',
@@ -29,7 +30,7 @@ export const defaultAgentCards: AgentCard[] = [
     inputs: 'Customer needs, the BA handoff, product constraints, and the current Toolhub design guidelines.',
     outputs: 'UI/UX decisions, flows, interface specifications, and questions for review.',
     collaboration: 'Work with the BA to validate needs and with the Developer to ensure the design can be implemented.',
-    useDesignGuidelines: true, x: 265, y: 220,
+    useDesignGuidelines: true, toolIds: [], x: 265, y: 220,
   },
   {
     id: 'developer', name: 'Developer Agent', role: 'Developer',
@@ -38,7 +39,7 @@ export const defaultAgentCards: AgentCard[] = [
     inputs: 'Customer request, BA requirements, UI/UX specifications, and existing code and system constraints.',
     outputs: 'Implementation plan, architecture decisions, code guidance, validation plan, dependencies, and risks.',
     collaboration: 'Work with the BA on requirement clarity and with the UI/UX Designer on feasible interactions.',
-    useDesignGuidelines: false, x: 470, y: 220,
+    useDesignGuidelines: false, toolIds: [], x: 470, y: 220,
   },
 ];
 
@@ -53,6 +54,7 @@ export function validateAgentCard(value: unknown): AgentCard {
     if (typeof card[key] !== 'string' || !card[key].trim() || card[key].length > limit) throw new Error(`${key} must be 1–${limit} characters.`);
   }
   if (typeof card.useDesignGuidelines !== 'boolean') throw new Error('useDesignGuidelines must be true or false.');
+  if (card.toolIds !== undefined && (!Array.isArray(card.toolIds) || card.toolIds.length > 20 || card.toolIds.some(id => typeof id !== 'string') || new Set(card.toolIds).size !== card.toolIds.length)) throw new Error('toolIds must be a list of unique tool IDs.');
   if (typeof card.x !== 'number' || !Number.isFinite(card.x) || Math.abs(card.x) > 10000 || typeof card.y !== 'number' || !Number.isFinite(card.y) || Math.abs(card.y) > 10000) throw new Error('Agent card position is invalid.');
-  return { id: card.id, name: (card.name as string).trim(), role: (card.role as string).trim(), mission: (card.mission as string).trim(), responsibilities: (card.responsibilities as string).trim(), inputs: (card.inputs as string).trim(), outputs: (card.outputs as string).trim(), collaboration: (card.collaboration as string).trim(), useDesignGuidelines: card.useDesignGuidelines, x: card.x, y: card.y };
+  return { id: card.id, name: (card.name as string).trim(), role: (card.role as string).trim(), mission: (card.mission as string).trim(), responsibilities: (card.responsibilities as string).trim(), inputs: (card.inputs as string).trim(), outputs: (card.outputs as string).trim(), collaboration: (card.collaboration as string).trim(), useDesignGuidelines: card.useDesignGuidelines, toolIds: (card.toolIds as string[] | undefined) ?? [], x: card.x, y: card.y };
 }

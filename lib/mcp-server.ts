@@ -1,8 +1,10 @@
 import { timingSafeEqual } from 'node:crypto';
 import { agents, isAgentId, runAgent, type AgentResult } from './agent-team';
-import { listAgentCards, saveAgentCard, deleteAgentCard } from './server/agent-cards';
+import { listAgentCards, saveAgentCard, deleteAgentCard, getAgentCard } from './server/agent-cards';
 import { getDesignerGraph, getDesignerGraphOutputs, runStoredGraphAgent } from './server/designer-graph';
 import { listScannerPath, readScannerFile, scannerConnectionStatus, scannerTableRequest, writeScannerFile } from './server/linkedin-scanner';
+import { toolCatalog } from './tool-catalog';
+import { importTool, listImportedTools, removeImportedTool } from './server/imported-tools';
 
 export type JsonRpcRequest = {
   jsonrpc?: string;
@@ -80,6 +82,26 @@ function tools() {
       inputSchema: { type: 'object', properties: { table: { type: 'string' }, method: { type: 'string', enum: ['GET', 'POST', 'PATCH', 'DELETE'] }, query: { type: 'object', additionalProperties: { type: 'string' } }, body: {} }, required: ['table', 'method'], additionalProperties: false },
     },
     {
+      name: 'tool_catalog_list',
+      description: 'List supported Toolhub tool bundles and their hashtags, including which have been imported.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    },
+    {
+      name: 'tool_import',
+      description: 'Import a supported tool bundle into Toolhub so its hashtag can be granted on Agent Cards.',
+      inputSchema: { type: 'object', properties: { tool_id: { type: 'string' } }, required: ['tool_id'], additionalProperties: false },
+    },
+    {
+      name: 'tool_remove',
+      description: 'Remove an imported tool bundle and revoke its grants from all Agent Cards.',
+      inputSchema: { type: 'object', properties: { tool_id: { type: 'string' } }, required: ['tool_id'], additionalProperties: false },
+    },
+    {
+      name: 'agent_tool_grant',
+      description: 'Grant or revoke one imported tool bundle for an Agent Card. Tool calls check this grant again at execution time.',
+      inputSchema: { type: 'object', properties: { agent_id: { type: 'string' }, tool_id: { type: 'string' }, granted: { type: 'boolean' } }, required: ['agent_id', 'tool_id', 'granted'], additionalProperties: false },
+    },
+    {
       name: 'agent_team_list',
       description: 'List all configured agent cards, including custom canvas agents, and whether the model is configured.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -87,7 +109,7 @@ function tools() {
     {
       name: 'agent_card_save',
       description: 'Create or update an agent card in the shared workspace. The saved card becomes callable by agent_run and agent_multi_run.',
-      inputSchema: { type: 'object', properties: { card: { type: 'object', properties: { id: { type: 'string', description: 'Use ba, designer, developer, or custom- followed by a UUID for a new agent.' }, name: { type: 'string' }, role: { type: 'string' }, mission: { type: 'string' }, responsibilities: { type: 'string' }, inputs: { type: 'string' }, outputs: { type: 'string' }, collaboration: { type: 'string' }, useDesignGuidelines: { type: 'boolean' }, x: { type: 'number' }, y: { type: 'number' } }, required: ['id', 'name', 'role', 'mission', 'responsibilities', 'inputs', 'outputs', 'collaboration', 'useDesignGuidelines', 'x', 'y'], additionalProperties: false } }, required: ['card'], additionalProperties: false },
+      inputSchema: { type: 'object', properties: { card: { type: 'object', properties: { id: { type: 'string', description: 'Use ba, designer, developer, or custom- followed by a UUID for a new agent.' }, name: { type: 'string' }, role: { type: 'string' }, mission: { type: 'string' }, responsibilities: { type: 'string' }, inputs: { type: 'string' }, outputs: { type: 'string' }, collaboration: { type: 'string' }, useDesignGuidelines: { type: 'boolean' }, toolIds: { type: 'array', items: { type: 'string' } }, x: { type: 'number' }, y: { type: 'number' } }, required: ['id', 'name', 'role', 'mission', 'responsibilities', 'inputs', 'outputs', 'collaboration', 'useDesignGuidelines', 'x', 'y'], additionalProperties: false } }, required: ['card'], additionalProperties: false },
     },
     {
       name: 'agent_card_delete',
@@ -157,6 +179,19 @@ export async function invokeMcpTool(name: string, args: Record<string, unknown> 
   if (name === 'toolhub_health') return toolResult({ status: 'ok', service: 'toolhub-mcp' });
   if (name === 'toolhub_list_departments') return toolResult(['Account', 'Business Development', 'Production', 'Project Management', 'HR', 'Andy Tran', 'Marketing']);
   if (name === 'linkedin_scanner_status') return toolResult(scannerConnectionStatus());
+  if (name === 'tool_catalog_list' || name === 'tool_import' || name === 'tool_remove' || name === 'agent_tool_grant') {
+    try {
+      if (name === 'tool_catalog_list') return toolResult({ catalog: toolCatalog, imported: await listImportedTools() });
+      if (typeof args.tool_id !== 'string') throw new Error('tool_id must be a string.');
+      if (name === 'tool_import') return toolResult({ tool: await importTool(args.tool_id) });
+      if (name === 'tool_remove') { await removeImportedTool(args.tool_id); return toolResult({ removed: args.tool_id }); }
+      if (typeof args.agent_id !== 'string' || typeof args.granted !== 'boolean') throw new Error('Invalid tool grant.');
+      const card = await getAgentCard(args.agent_id);
+      if (!card) throw new Error('Agent card not found.');
+      const toolIds = args.granted ? [...new Set([...card.toolIds, args.tool_id])] : card.toolIds.filter(id => id !== args.tool_id);
+      return toolResult({ card: await saveAgentCard({ ...card, toolIds }) });
+    } catch (error) { return toolResult({ error: error instanceof Error ? error.message : 'Tool management failed.' }, true); }
+  }
   if (name.startsWith('linkedin_scanner_')) {
     try {
       if (name === 'linkedin_scanner_list_files') {
@@ -281,7 +316,7 @@ export async function handleMcpRequest(input: JsonRpcRequest): Promise<JsonRpcRe
       protocolVersion,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: 'toolhub-mcp', version: '0.4.0' },
-      instructions: 'Toolhub MCP controls the built-in BA, UI/UX, and Developer agents and saved custom agent cards. Use designer_graph_get to inspect the saved UI/UX graph and designer_graph_run_node to execute one of its active AI Agent nodes. Use agent_team_list to inspect cards and IDs; agent_run for one agent; agent_team_run for built-in handoffs; agent_team_parallel_run or agent_multi_run for independent tasks. LinkedIn Scanner tools access only minhwuan1234/linkedin-daily-scanner and its configured Supabase Data API; status never exposes credentials. MCP access does not expose API keys. Results describe agent output only; do not claim external actions were performed.',
+      instructions: 'Toolhub MCP manages all agent cards, imported tool bundles, agent tool grants, and agent runs. Use tool_catalog_list and tool_import to make a tool available, then agent_tool_grant to give one agent access. Only granted and imported tools are exposed to that agent; each execution checks the grant again. MCP callers can also use the LinkedIn Scanner tools directly. Use designer_graph_get and designer_graph_run_node for the saved UI/UX graph. MCP access does not expose API keys. Results describe agent output only; do not claim external actions were performed.',
     });
   }
 

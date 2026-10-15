@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { Pool } from 'pg';
 import { handleMcpRequest, isMcpAuthorized } from '../lib/mcp-server';
 
 test('MCP lists exactly three agents and exposes control tools', async () => {
   const list = await handleMcpRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
   const tools = (list?.result as { tools: Array<{ name: string }> }).tools;
-  assert.deepEqual(tools.filter(tool => tool.name.startsWith('agent_')).map(tool => tool.name), ['agent_team_list', 'agent_card_save', 'agent_card_delete', 'agent_run', 'agent_team_run', 'agent_team_parallel_run', 'agent_multi_run']);
+  assert.deepEqual(tools.filter(tool => tool.name.startsWith('agent_')).map(tool => tool.name), ['agent_tool_grant', 'agent_team_list', 'agent_card_save', 'agent_card_delete', 'agent_run', 'agent_team_run', 'agent_team_parallel_run', 'agent_multi_run']);
   const team = await handleMcpRequest({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'agent_team_list' } });
   const payload = (team?.result as { structuredContent: { agents: Array<{ id: string }> } }).structuredContent;
   assert.deepEqual(payload.agents.map(agent => agent.id), ['ba', 'designer', 'developer']);
@@ -14,6 +15,17 @@ test('MCP lists exactly three agents and exposes control tools', async () => {
 test('MCP team run passes each completed handoff to the next agent', async () => {
   const previousFetch = globalThis.fetch;
   const previousKey = process.env.OPENAI_API_KEY;
+  const previousUrl = process.env.DATABASE_URL;
+  const globalDatabase = globalThis as typeof globalThis & { toolhubPool?: Pool };
+  const previousPool = globalDatabase.toolhubPool;
+  const query = async (sql: string) => {
+    if (sql.includes('FROM agent_cards')) return { rows: [] };
+    if (sql.includes('SELECT spent_micro_usd, reserved_micro_usd')) return { rows: [{ spent_micro_usd: 0, reserved_micro_usd: 0 }] };
+    if (sql.includes('DELETE FROM agent_api_spend_reservations WHERE id')) return { rows: [{ reserved_micro_usd: 1000 }] };
+    return { rows: [] };
+  };
+  globalDatabase.toolhubPool = { query, connect: async () => ({ query, release() {} }) } as unknown as Pool;
+  process.env.DATABASE_URL = 'mock-only';
   process.env.OPENAI_API_KEY = 'test-key';
   const inputs: string[] = [];
   globalThis.fetch = async (_url, init) => {
@@ -32,7 +44,9 @@ test('MCP team run passes each completed handoff to the next agent', async () =>
     assert.match(inputs[2], /Result 1/);
     assert.match(inputs[2], /Result 2/);
   } finally {
+    globalDatabase.toolhubPool = previousPool;
     globalThis.fetch = previousFetch;
+    if (previousUrl === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = previousUrl;
     if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;
   }

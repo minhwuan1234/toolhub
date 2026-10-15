@@ -9,7 +9,13 @@ test('MCP discovers a saved custom card and runs its latest instructions with pe
   const previous = { pool: globalDatabase.toolhubPool, url: process.env.DATABASE_URL, key: process.env.OPENAI_API_KEY, fetch: globalThis.fetch };
   const card = { ...defaultAgentCards[0], id: 'custom-2ec45a63-7193-4b5e-9f72-78cf933d3242', name: 'Research Agent', role: 'Researcher', mission: 'Compare customer solution options.' };
   let savedMission = card.mission;
-  globalDatabase.toolhubPool = { query: async () => ({ rows: [{ ...card, mission: savedMission, use_design_guidelines: false }] }) } as unknown as Pool;
+  const query = async (sql: string) => {
+    if (sql.includes('FROM agent_cards')) return { rows: [{ ...card, mission: savedMission, use_design_guidelines: false }] };
+    if (sql.includes('SELECT spent_micro_usd, reserved_micro_usd')) return { rows: [{ spent_micro_usd: 0, reserved_micro_usd: 0 }] };
+    if (sql.includes('DELETE FROM agent_api_spend_reservations WHERE id')) return { rows: [{ reserved_micro_usd: 1000 }] };
+    return { rows: [] };
+  };
+  globalDatabase.toolhubPool = { query, connect: async () => ({ query, release() {} }) } as unknown as Pool;
   process.env.DATABASE_URL = 'mock-only';
   process.env.OPENAI_API_KEY = 'mock-key';
   const requests: Array<{ instructions: string; input: string }> = [];
