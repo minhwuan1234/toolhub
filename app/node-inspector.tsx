@@ -79,7 +79,7 @@ export function NodeInspector({ node, incoming, configured, agentState, canManag
         <label className="agent-card-design"><input type="checkbox" checked={draft.useDesignGuidelines} disabled={!canManageAgents || saving} onChange={event => setDraft(current => ({ ...current, useDesignGuidelines: event.target.checked }))}/><span>Use current Toolhub DESIGN.md guidance</span></label>
         <div className="agent-tool-access"><strong>Tools</strong>
           {toolCatalogItems.map(tool => <div key={tool.id} className="agent-tool-row">
-            <div><span className="agent-tool-tag" data-selected={draft.toolIds.includes(tool.id)}>{tool.tag}</span><p>{tool.description}</p></div>
+            <span className="agent-tool-tag" data-selected={draft.toolIds.includes(tool.id)}>{tool.tag}</span>
             {importedTools.includes(tool.id)
               ? <button type="button" className="agent-tool-toggle" aria-pressed={draft.toolIds.includes(tool.id)} disabled={!canManageAgents || saving} onClick={() => setDraft(current => ({ ...current, toolIds: current.toolIds.includes(tool.id) ? current.toolIds.filter(id => id !== tool.id) : [...current.toolIds, tool.id] }))}>{draft.toolIds.includes(tool.id) ? 'Enabled' : 'Enable'}</button>
               : <button type="button" className="agent-tool-toggle" disabled={!canManageAgents || saving} onClick={() => void importSelectedTool(tool.id)}>Import</button>}
