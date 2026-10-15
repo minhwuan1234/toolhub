@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { listScannerPath, listScannerTables, readScannerFile, scannerTableRequest, writeScannerFile } from '../lib/server/linkedin-scanner';
+import { listScannerPath, listScannerTables, readScannerFile, scannerTableRequest, sentScannerConnectsToday, writeScannerFile } from '../lib/server/linkedin-scanner';
 
 const originalFetch = globalThis.fetch;
 const originalPat = process.env.LINKEDIN_SCANNER_PAT;
@@ -98,4 +98,24 @@ test('Supabase response diagnostics redact an echoed secret', async () => {
     assert.ok(!error.message.includes(secret));
     return true;
   });
+});
+
+test('today sent Connect lookup uses the real prospects table and Vietnam day boundaries', async () => {
+  process.env.LINKEDIN_SCANNER_SUPABASE_URL = 'https://scanner.supabase.co';
+  process.env.LINKEDIN_SCANNER_SUPABASE_SECRET_KEY = 'sb_secret_test-value';
+  let requests = 0;
+  globalThis.fetch = async input => {
+    requests++;
+    const url = new URL(String(input));
+    assert.equal(url.pathname, '/rest/v1/outreach_prospects');
+    assert.equal(url.searchParams.get('connect_status'), 'eq.invitation_sent');
+    assert.equal(url.searchParams.get('and'), '(last_connect_attempt_at.gte.2026-10-14T17:00:00.000Z,last_connect_attempt_at.lt.2026-10-15T17:00:00.000Z)');
+    assert.equal(url.searchParams.get('order'), 'last_connect_attempt_at.desc');
+    return Response.json([{ id: 'prospect-1', linkedin_url: 'https://www.linkedin.com/in/example', last_connect_attempt_at: '2026-10-15T08:00:00Z' }]);
+  };
+  assert.deepEqual(await sentScannerConnectsToday(new Date('2026-10-14T17:30:00Z')), {
+    date: '2026-10-15', timezone: 'Asia/Ho_Chi_Minh', count: 1,
+    rows: [{ id: 'prospect-1', linkedin_url: 'https://www.linkedin.com/in/example', last_connect_attempt_at: '2026-10-15T08:00:00Z' }],
+  });
+  assert.equal(requests, 1);
 });

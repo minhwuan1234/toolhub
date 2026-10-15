@@ -102,6 +102,25 @@ export async function listScannerTables(): Promise<Array<{ name: string; columns
   return Object.keys(paths).filter(path => /^\/[a-zA-Z_][a-zA-Z_0-9]*$/.test(path)).slice(0, 100).map(path => ({ name: path.slice(1), columns: Object.keys(definitions[path.slice(1)]?.properties || {}).slice(0, 100) }));
 }
 
+export async function sentScannerConnectsToday(now = new Date()): Promise<{ date: string; timezone: string; count: number; rows: unknown[] }> {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now);
+  const datePart = (type: string) => parts.find(part => part.type === type)?.value;
+  const date = `${datePart('year')}-${datePart('month')}-${datePart('day')}`;
+  const start = new Date(`${date}T00:00:00+07:00`);
+  const end = new Date(start.getTime() + 86_400_000);
+  const rows = await scannerTableRequest('outreach_prospects', 'GET', {
+    select: 'id,linkedin_url,normalized_url,connect_status,last_connect_attempt_at',
+    connect_status: 'eq.invitation_sent',
+    and: `(last_connect_attempt_at.gte.${start.toISOString()},last_connect_attempt_at.lt.${end.toISOString()})`,
+    order: 'last_connect_attempt_at.desc',
+    limit: '1000',
+  });
+  if (!Array.isArray(rows)) throw new Error('Supabase returned an invalid sent Connect list.');
+  return { date, timezone: 'Asia/Ho_Chi_Minh', count: rows.length, rows };
+}
+
 export async function scannerTableRequest(table: string, method: SupabaseMethod, query: Record<string, string>, body?: unknown): Promise<unknown> {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(table)) throw new Error('Invalid table name.');
   if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(method)) throw new Error('Invalid database method.');

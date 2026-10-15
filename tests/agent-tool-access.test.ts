@@ -13,6 +13,9 @@ void test('only a granted agent receives and executes an imported tool, and revo
   let modelCalls = 0;
   let githubCalls = 0;
   let failDiscovery = false;
+  let budgetRun = false;
+  let budgetRounds = 0;
+  let directRun = false;
   const card = { ...defaultAgentCards[0], tool_ids: ['linkedin-scanner'], use_design_guidelines: false };
   const query = async (sql: string) => {
     if (sql.includes('FROM agent_cards')) return { rows: [{ ...card, tool_ids: granted ? ['linkedin-scanner'] : [] }] };
@@ -32,14 +35,27 @@ void test('only a granted agent receives and executes an imported tool, and revo
     if (url.includes('scanner.supabase.co')) return Response.json({ code: 'PGRST301', message: 'Invalid API key' }, { status: 401 });
     if (url.includes('api.github.com')) {
       githubCalls++;
+      if (url.endsWith('/contents/')) return Response.json([{ type: 'file', path: 'README.md', sha: 'root-sha' }]);
       if (url.endsWith('/contents/app')) return Response.json([{ type: 'file', path: 'app/settings.py', sha: 'file-sha' }]);
       return Response.json({ type: 'file', encoding: 'base64', sha: 'file-sha', content: Buffer.from('file data').toString('base64') });
     }
     assert.equal(url, 'https://api.openai.com/v1/responses');
     modelCalls++;
-    const request = JSON.parse(init?.body as string) as { tools?: Array<{ name: string }>; input: unknown[] };
+    const request = JSON.parse(init?.body as string) as { tools?: Array<{ name: string }>; input: unknown[]; tool_choice?: string; parallel_tool_calls?: boolean };
     assert.ok(request.tools?.some(tool => tool.name === 'scanner_read_file'));
     assert.ok(request.tools?.some(tool => tool.name === 'scanner_list_tables'));
+    assert.ok(request.tools?.some(tool => tool.name === 'scanner_sent_connects_today'));
+    if (directRun) return Response.json({ output: [{ type: 'function_call', call_id: 'direct-1', name: 'scanner_sent_connects_today', arguments: '{}' }] });
+    if (budgetRun) {
+      assert.equal(request.parallel_tool_calls, false);
+      if (request.tool_choice === 'none') {
+        assert.equal(budgetRounds, 8);
+        return Response.json({ output: [{ type: 'message', content: [{ type: 'output_text', text: 'Finished from tool results.' }] }] });
+      }
+      assert.equal(request.tool_choice, 'auto');
+      budgetRounds++;
+      return Response.json({ output: [{ type: 'function_call', call_id: `budget-${budgetRounds}`, name: 'scanner_list_files', arguments: '{"path":""}' }] });
+    }
     if (failDiscovery) {
       if (modelCalls === 4) return Response.json({ output: [{ type: 'function_call', call_id: 'call-3', name: 'scanner_list_tables', arguments: '{}' }] });
       assert.ok(request.input.some(item => JSON.stringify(item).includes('PGRST301')));
@@ -59,10 +75,19 @@ void test('only a granted agent receives and executes an imported tool, and revo
     assert.equal(githubCalls, 2);
     failDiscovery = true;
     await assert.rejects(() => runAgent('ba', 'List sent Connect records'), /scanner_list_tables: Supabase table discovery failed \(HTTP 401, PGRST301\): Invalid API key/);
+    failDiscovery = false;
+    budgetRun = true;
+    assert.equal((await runAgent('ba', 'Inspect scanner files')).content, 'Finished from tool results.');
+    assert.equal(budgetRounds, 8);
+    budgetRun = false;
+    directRun = true;
+    const beforeDirectRun = modelCalls;
+    await assert.rejects(() => runAgent('ba', 'List Connects sent today'), /scanner_sent_connects_today: Supabase table request failed \(HTTP 401, PGRST301\): Invalid API key/);
+    assert.equal(modelCalls, beforeDirectRun + 1);
     granted = false;
     await assert.rejects(() => executeAgentFunction('ba', 'scanner_read_file', { path: 'app/settings.py' }), /not granted|revoked/);
     imported = false;
-    assert.equal(githubCalls, 2);
+    assert.equal(githubCalls, 10);
   } finally {
     globalDatabase.toolhubPool = previous.pool;
     globalThis.fetch = previous.fetch;

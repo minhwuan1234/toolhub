@@ -28,6 +28,8 @@ export async function POST(request: Request) {
     if (feedback) await markGraphFeedbackConsumed(feedback.id);
     return Response.json({ result }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : 'Unable to run the AI Agent.' }, { status: 503 });
+    const message = error instanceof Error ? error.message : 'Unable to run the AI Agent.';
+    const status = message === 'Agent tool call limit reached.' ? 422 : /^scanner_(?:list_files|read_file|write_file|list_tables|sent_connects_today|table):/.test(message) ? 424 : 503;
+    return Response.json({ error: message }, { status, headers: { 'Cache-Control': 'no-store' } });
   }
 }
