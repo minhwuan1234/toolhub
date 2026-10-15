@@ -851,6 +851,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
           const inputCheck = resolveConnectedInput(node.id, instructionDraft, nodes, links);
           const files = outputFiles(node.lastOutput);
           const data = agentOutputData(node.lastOutput);
+          const previousRunFailed = Boolean(data && typeof data === 'object' && !Array.isArray(data) && (data as Record<string, unknown>).success === false);
           const table = outputTable(data);
           const schema = outputSchemaRows(data);
           const selectedView = outputView === 'preview' && !files ? 'table' : outputView;
@@ -884,12 +885,12 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
               setOutputError('');
             }}>Save</button><button type="button" disabled={runningAgent || !node.active || instructionDraft !== node.instructionPrompt || !node.instructionPrompt.trim() || !inputCheck.ok} onClick={() => void runGraphAgent(node)}>{runningAgent ? 'Running…' : 'Run'}</button></div>
           </div><section className="workflow-agent-output-panel" aria-label="AI Agent output">
-            <header className="workflow-agent-output-heading"><strong>Output</strong>{node.lastOutput && <span>Last successful run</span>}</header>
+            <header className="workflow-agent-output-heading"><strong>Output</strong>{node.lastOutput && !previousRunFailed && !outputError && <span>Last successful run</span>}</header>
             <div className="workflow-agent-output-tabs" role="group" aria-label="Output view">{(['table', 'json', 'schema', ...(files ? ['preview'] : [])] as Array<'table' | 'json' | 'schema' | 'preview'>).map(view => <button type="button" aria-pressed={selectedView === view} key={view} onClick={() => setOutputView(view)}>{view === 'json' ? 'JSON' : view[0].toUpperCase() + view.slice(1)}</button>)}</div>
             <div className="workflow-agent-output-body">
               {outputError && <div role="alert" className="workflow-agent-output-error">{outputError}</div>}
               {runningAgent && <div role="status" className="workflow-agent-output-pending">Running agent…</div>}
-              {node.lastOutput ? selectedView === 'preview' && files ? <iframe className="workflow-agent-output-preview" title={`${agentName} output preview`} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={graphPreviewDocument(files)}/> : selectedView === 'json' ? <pre className="workflow-agent-output-code">{displayAgentOutput(node.lastOutput)}</pre> : selectedView === 'schema' ? <table className="workflow-agent-output-table"><thead><tr><th>Path</th><th>Type</th></tr></thead><tbody>{schema.map(row => <tr key={row.path}><td>{row.path}</td><td>{row.type}</td></tr>)}</tbody></table> : <table className="workflow-agent-output-table"><thead><tr>{table.columns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>{table.rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{outputCell(cell)}</td>)}</tr>)}</tbody></table> : !runningAgent && <div className="workflow-agent-output-empty">Run this node to see its output.</div>}
+              {!outputError && (node.lastOutput ? selectedView === 'preview' && files ? <iframe className="workflow-agent-output-preview" title={`${agentName} output preview`} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={graphPreviewDocument(files)}/> : selectedView === 'json' ? <pre className="workflow-agent-output-code">{displayAgentOutput(node.lastOutput)}</pre> : selectedView === 'schema' ? <table className="workflow-agent-output-table"><thead><tr><th>Path</th><th>Type</th></tr></thead><tbody>{schema.map(row => <tr key={row.path}><td>{row.path}</td><td>{row.type}</td></tr>)}</tbody></table> : <table className="workflow-agent-output-table"><thead><tr>{table.columns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>{table.rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{outputCell(cell)}</td>)}</tr>)}</tbody></table> : !runningAgent && <div className="workflow-agent-output-empty">Run this node to see its output.</div>)}
             </div>
           </section></div>;
         })()}

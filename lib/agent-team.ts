@@ -84,7 +84,11 @@ export async function runAgent(agentId: AgentId, message: string, context = '', 
           let result: unknown;
           try { result = await executeAgentFunction(agentId, call.name, JSON.parse(call.arguments) as unknown); }
           catch (error) {
-            const detail = error instanceof Error ? error.message : 'Tool call failed.';
+            let detail = error instanceof Error ? error.message : 'Tool call failed.';
+            for (const secret of [process.env.LINKEDIN_SCANNER_PAT, process.env.LINKEDIN_SCANNER_SUPABASE_SECRET_KEY, process.env.OPENAI_API_KEY]) {
+              if (secret) detail = detail.replaceAll(secret, '[redacted]');
+            }
+            detail = detail.replace(/sb_secret_[A-Za-z0-9._~-]{8,}/g, '[redacted]');
             toolErrors.push(`${call.name}: ${detail}`);
             result = { error: detail };
           }

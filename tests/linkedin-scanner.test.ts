@@ -70,3 +70,32 @@ test('Supabase discovery reports the upstream HTTP status and error code', async
   globalThis.fetch = async () => Response.json({ code: 'PGRST301', message: 'Invalid API key' }, { status: 401 });
   await assert.rejects(() => listScannerTables(), /Supabase table discovery failed \(HTTP 401, PGRST301\): Invalid API key/);
 });
+
+test('malformed Supabase key is rejected before request without exposing its value', async () => {
+  process.env.LINKEDIN_SCANNER_SUPABASE_URL = 'https://scanner.supabase.co';
+  const secret = 'sb_secret_example\nsecond-line';
+  process.env.LINKEDIN_SCANNER_SUPABASE_SECRET_KEY = secret;
+  let requested = false;
+  globalThis.fetch = async () => { requested = true; throw new Error('Request should not be sent.'); };
+  await assert.rejects(() => listScannerTables(), error => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /LINKEDIN_SCANNER_SUPABASE_SECRET_KEY contains invalid characters/);
+    assert.ok(!error.message.includes(secret));
+    assert.ok(!error.message.includes('sb_secret_example'));
+    return true;
+  });
+  assert.equal(requested, false);
+});
+
+test('Supabase response diagnostics redact an echoed secret', async () => {
+  process.env.LINKEDIN_SCANNER_SUPABASE_URL = 'https://scanner.supabase.co';
+  const secret = 'sb_secret_test-value';
+  process.env.LINKEDIN_SCANNER_SUPABASE_SECRET_KEY = secret;
+  globalThis.fetch = async () => Response.json({ message: `Rejected ${secret}` }, { status: 401 });
+  await assert.rejects(() => listScannerTables(), error => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /Rejected \[redacted\]/);
+    assert.ok(!error.message.includes(secret));
+    return true;
+  });
+});

@@ -7,6 +7,22 @@ function required(name: string): string {
   return value;
 }
 
+function credential(name: 'LINKEDIN_SCANNER_PAT' | 'LINKEDIN_SCANNER_SUPABASE_SECRET_KEY'): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is not configured on the Toolhub backend.`);
+  if (!/^[A-Za-z0-9._~-]+$/.test(value)) throw new Error(`${name} contains invalid characters. Set the raw key as one line without quotes, spaces, or line breaks.`);
+  return value;
+}
+
+function redactCredentials(message: string): string {
+  let safe = message;
+  for (const name of ['LINKEDIN_SCANNER_PAT', 'LINKEDIN_SCANNER_SUPABASE_SECRET_KEY'] as const) {
+    const value = process.env[name];
+    if (value) safe = safe.replaceAll(value, '[redacted]');
+  }
+  return safe.replace(/sb_secret_[A-Za-z0-9._~-]{8,}/g, '[redacted]');
+}
+
 function safePath(path: string): string {
   if (path === '') return '';
   const parts = path.split('/');
@@ -19,7 +35,7 @@ function safePath(path: string): string {
 async function githubRequest(path: string, init: RequestInit = {}): Promise<unknown> {
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/vnd.github+json');
-  headers.set('Authorization', `Bearer ${required('LINKEDIN_SCANNER_PAT')}`);
+  headers.set('Authorization', `Bearer ${credential('LINKEDIN_SCANNER_PAT')}`);
   headers.set('X-GitHub-Api-Version', '2022-11-28');
   const response = await fetch(`${githubApi}/contents/${safePath(path)}`, {
     ...init,
@@ -69,13 +85,13 @@ function supabaseBase(): URL {
 function supabaseError(status: number, result: unknown, operation: string): Error {
   const details = result && typeof result === 'object' ? result as Record<string, unknown> : {};
   const code = typeof details.code === 'string' && /^[\w-]{1,60}$/.test(details.code) ? `, ${details.code}` : '';
-  const message = typeof details.message === 'string' ? details.message.slice(0, 300) : '';
+  const message = typeof details.message === 'string' ? redactCredentials(details.message.slice(0, 300)) : '';
   return new Error(`${operation} failed (HTTP ${status}${code})${message ? `: ${message}` : '.'}`);
 }
 
 export async function listScannerTables(): Promise<Array<{ name: string; columns: string[] }>> {
   const response = await fetch(new URL('/rest/v1/', supabaseBase()), {
-    headers: { apikey: required('LINKEDIN_SCANNER_SUPABASE_SECRET_KEY'), Accept: 'application/openapi+json' },
+    headers: { apikey: credential('LINKEDIN_SCANNER_SUPABASE_SECRET_KEY'), Accept: 'application/openapi+json' },
     signal: AbortSignal.timeout(15000),
   });
   const schema = await response.json().catch(() => null) as { definitions?: Record<string, { properties?: Record<string, unknown> }>; paths?: Record<string, unknown> } | null;
@@ -98,7 +114,7 @@ export async function scannerTableRequest(table: string, method: SupabaseMethod,
   const url = new URL(`/rest/v1/${table}`, base);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
   if (method === 'GET' && !url.searchParams.has('limit')) url.searchParams.set('limit', '100');
-  const key = required('LINKEDIN_SCANNER_SUPABASE_SECRET_KEY');
+  const key = credential('LINKEDIN_SCANNER_SUPABASE_SECRET_KEY');
   const response = await fetch(url, {
     method,
     headers: { apikey: key, Accept: 'application/json', Prefer: 'return=representation', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
