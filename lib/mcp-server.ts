@@ -128,7 +128,7 @@ function tools() {
     },
     {
       name: 'designer_graph_run_node',
-      description: 'Run one active AI Agent node in the saved UI/UX graph using its instruction prompt, explicit input, connected context tags, and structured output schema. The result is saved for the Toolhub Output panel.',
+      description: 'Run one active AI Agent node in the saved UI/UX graph using its instruction prompt and connected context tags. The result is saved for the Toolhub Output panel.',
       inputSchema: { type: 'object', properties: { node_id: { type: 'string' } }, required: ['node_id'], additionalProperties: false },
     },
     {

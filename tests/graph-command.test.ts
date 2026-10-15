@@ -21,14 +21,14 @@ void test('graph command selects only an agent connected to the saved test hando
     links: [{ source: 'handoff', target: 'agent', command: 'input' }],
   } as DesignerGraphDocument;
   assert.equal(designerGraphNodeForTestDocument(graph), 'agent');
-  const task = graphAgentTask({ ...graph.nodes[1], explicitInput: '' }, graph, 'Design from Test document');
+  const task = graphAgentTask(graph.nodes[1], graph, 'Design from Test document');
   assert.equal(task, 'Design from Test document');
   assert.deepEqual(resolveGraphAgentInput('agent', task, graph.nodes.map(node => ({ ...node, contextFiles: [], contextTags: [] })), graph.links, { handoff: 'BA brief' }), { ok: true, content: 'Design from Test document\n\nBA brief' });
   assert.throws(() => designerGraphNodeForTestDocument({ ...graph, links: [] }), /Connect an active/);
 });
 
 void test('chat fallback includes only core style tags from connected Context Builder nodes', () => {
-  const base = { number: 1, x: 0, y: 0, name: 'Test', active: true, contextText: '', testDocument: '', useTestDocument: false, instructionPrompt: '', explicitInput: '', structuredOutput: '', contextFiles: [], contextTags: [] };
+  const base = { number: 1, x: 0, y: 0, name: 'Test', active: true, contextText: '', testDocument: '', useTestDocument: false, instructionPrompt: '', contextFiles: [], contextTags: [] };
   const graph: DesignerGraphDocument = {
     nodes: [
       { ...base, id: 'agent', kind: 'agent' },
@@ -43,4 +43,13 @@ void test('chat fallback includes only core style tags from connected Context Bu
   assert.match(task, /\/Color\.Background\//);
   assert.equal(task.includes('/Type.Family/'), false);
   assert.deepEqual(resolveGraphAgentInput('agent', task, graph.nodes, graph.links), { ok: true, content: 'Design the screen\n\nUse these connected Toolhub design rules for the screen: #ffffff' });
+});
+
+void test('saved instruction prompt is the graph agent task without an output schema', () => {
+  const graph: DesignerGraphDocument = {
+    nodes: [{ id: 'agent', kind: 'agent', active: true, instructionPrompt: 'Find today’s sent records.' } as DesignerGraphDocument['nodes'][number]],
+    links: [], screenContextsSeeded: false, screenContextVersion: 0,
+  };
+  assert.equal(graphAgentTask(graph.nodes[0], graph, ''), 'Find today’s sent records.');
+  assert.deepEqual(resolveGraphAgentInput('agent', graphAgentTask(graph.nodes[0], graph, ''), graph.nodes.map(node => ({ ...node, contextFiles: [], contextTags: [] })), []), { ok: true, content: 'Find today’s sent records.' });
 });

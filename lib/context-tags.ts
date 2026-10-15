@@ -43,13 +43,13 @@ export function resolveConnectedInput(targetNodeId: string, task: string, nodes:
   return resolveContextText(task, buildConnectedTagRegistry(targetNodeId, nodes, links));
 }
 
-export function resolveGraphAgentInput(agentNodeId: string, explicitInput: string, nodes: ContextTagSource[], links: ContextInputLink[], handoffData: Record<string, string> = {}): TagResolution {
+export function resolveGraphAgentInput(agentNodeId: string, prompt: string, nodes: ContextTagSource[], links: ContextInputLink[], handoffData: Record<string, string> = {}): TagResolution {
   const workflowIds = new Set(links.filter(link => link.target === agentNodeId && link.command === 'input').map(link => link.source));
   const workflows = nodes.filter(node => node.kind === 'workflow' && node.active !== false && workflowIds.has(node.id) && node.taskText?.trim());
-  if (!explicitInput.trim() && !workflows.length) return { ok: false, error: 'Add Explicit input or connect a Workflow node with a task.' };
+  if (!prompt.trim() && !workflows.length) return { ok: false, error: 'Add an Instruction prompt or connect a Workflow node with a task.' };
   const parts: string[] = [];
-  if (explicitInput.trim()) {
-    const resolved = resolveConnectedInput(agentNodeId, explicitInput, nodes, links);
+  if (prompt.trim()) {
+    const resolved = resolveConnectedInput(agentNodeId, prompt, nodes, links);
     if (!resolved.ok) return resolved;
     parts.push(resolved.content);
   }

@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { buildConnectedTagRegistry, resolveConnectedInput, resolveGraphAgentInput, type ContextTagSource, type ContextInputLink } from '@/lib/context-tags';
-import { validateStructuredOutput } from '@/lib/structured-output';
 import { runAgent } from '@/lib/agent-team';
 import { getDatabase } from './database';
 
@@ -15,8 +14,6 @@ export type DesignerGraphNode = ContextTagSource & {
   testDocument: string;
   useTestDocument: boolean;
   instructionPrompt: string;
-  explicitInput: string;
-  structuredOutput: string;
 };
 export type DesignerGraphDocument = {
   nodes: DesignerGraphNode[];
@@ -202,7 +199,7 @@ export async function markGraphFeedbackConsumed(id: string): Promise<void> {
 
 export function graphAgentTask(node: DesignerGraphNode, document: DesignerGraphDocument, fallbackTask: string): string {
   const hasWorkflowTask = document.links.some(link => link.target === node.id && link.command === 'input' && document.nodes.some(item => item.id === link.source && item.kind === 'workflow' && item.active !== false && item.taskText?.trim()));
-  if (node.explicitInput?.trim()) return node.explicitInput.trim();
+  if (node.instructionPrompt?.trim()) return node.instructionPrompt.trim();
   if (hasWorkflowTask || !fallbackTask.trim()) return '';
   const registry = buildConnectedTagRegistry(node.id, document.nodes, document.links);
   const styleTags = ['Screen.Shell', 'Navigation.Topbar', 'Layout.Content', 'Color.Background', 'Color.Surface', 'Color.Text', 'Color.Border', 'Type.Family', 'Type.PageTitle', 'Surface.Panel', 'Button.Base', 'Responsive.Shell']
@@ -222,8 +219,6 @@ export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', app
   const node = document.nodes.find(item => item.id === nodeId);
   if (!node || node.kind !== 'agent') throw new Error('AI Agent node not found.');
   if (!node.active) throw new Error('AI Agent node is inactive.');
-  const format = validateStructuredOutput(node.structuredOutput);
-  if (!format.ok) throw new Error(format.error);
   const handoffData = { ...Object.fromEntries(document.nodes.filter(item => item.kind === 'agent-handoff' && item.active !== false && item.handoffMode === 'receive' && item.useTestDocument).map(item => [item.id, item.testDocument || ''])), ...liveHandoffs };
   const task = graphAgentTask(node, document, fallbackTask || (approvedOutput ? 'Continue the workflow using the approved output from the previous node.' : ''));
   const input = resolveGraphAgentInput(node.id, task, document.nodes, document.links, handoffData);
@@ -231,8 +226,8 @@ export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', app
   if (approvedOutput.length > 99000) throw new Error('Approved output exceeds the next agent context limit.');
   const feedback = await getUnconsumedGraphFeedback(node.id);
   const message = feedback ? `${input.content}\n\nHuman review feedback for this revision:\n${feedback.feedback}` : input.content;
-  const result = await runAgent(agentId, message, approvedOutput ? `Upstream graph output:\n${approvedOutput}` : '', { outputSchema: format.schema, additionalInstructions: node.instructionPrompt, graphApprovedContext: Boolean(approvedOutput), graphInput: true });
-  const content = JSON.stringify(JSON.parse(result.content) as unknown, null, 2);
+  const result = await runAgent(agentId, message, approvedOutput ? `Upstream graph output:\n${approvedOutput}` : '', { graphApprovedContext: Boolean(approvedOutput), graphInput: true });
+  const content = result.content;
   await saveDesignerGraphOutput(node.id, content, agentId);
   if (feedback) await markGraphFeedbackConsumed(feedback.id);
   return { node_id: node.id, run_id: randomUUID(), result: { ...result, content } };

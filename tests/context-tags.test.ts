@@ -90,7 +90,7 @@ test('AI Agent input follows a linked task with selected tags and an incoming ha
   assert.equal(resolveGraphAgentInput('another-agent', '', nodes, links).ok, false);
 });
 
-test('AI Agent Explicit input resolves only directly connected tags and receives a direct handoff', () => {
+test('AI Agent instruction prompt resolves only directly connected tags and receives a direct handoff', () => {
   const nodes: ContextTagSource[] = [
     source('Use blue.', 'Color'),
     { ...source('Use Inter.', 'Type'), id: 'context-2' },
