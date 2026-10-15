@@ -17,14 +17,13 @@ function safePath(path: string): string {
 }
 
 async function githubRequest(path: string, init: RequestInit = {}): Promise<unknown> {
+  const headers = new Headers(init.headers);
+  headers.set('Accept', 'application/vnd.github+json');
+  headers.set('Authorization', `Bearer ${required('LINKEDIN_SCANNER_PAT')}`);
+  headers.set('X-GitHub-Api-Version', '2022-11-28');
   const response = await fetch(`${githubApi}/contents/${safePath(path)}`, {
     ...init,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${required('LINKEDIN_SCANNER_PAT')}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...init.headers,
-    },
+    headers,
     signal: AbortSignal.timeout(15000),
   });
   const data = await response.json().catch(() => null);
@@ -35,7 +34,8 @@ async function githubRequest(path: string, init: RequestInit = {}): Promise<unkn
 export async function readScannerFile(path: string): Promise<{ path: string; sha: string; content: string }> {
   if (!path) throw new Error('File path is required.');
   const value = await githubRequest(path) as { type?: string; sha?: string; content?: string; encoding?: string };
-  if (value.type !== 'file' || value.encoding !== 'base64' || !value.sha || !value.content) throw new Error('Path is not a readable text file.');
+  if (Array.isArray(value) || value.type === 'dir') throw new Error('This path is a GitHub directory. Use scanner_list_files to inspect it, then read a specific text file.');
+  if (value.type !== 'file' || value.encoding !== 'base64' || !value.sha || !value.content) throw new Error('GitHub did not return readable inline text for this file. Choose a smaller text file or use scanner_table for Supabase rows.');
   return { path, sha: value.sha, content: Buffer.from(value.content.replace(/\s/g, ''), 'base64').toString('utf8') };
 }
 
@@ -59,6 +59,24 @@ export async function writeScannerFile(path: string, content: string, message: s
 
 type SupabaseMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
+function supabaseBase(): URL {
+  const base = new URL(required('LINKEDIN_SCANNER_SUPABASE_URL'));
+  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || (base.pathname !== '/' && base.pathname !== '')) throw new Error('Invalid Supabase project URL.');
+  return base;
+}
+
+export async function listScannerTables(): Promise<Array<{ name: string; columns: string[] }>> {
+  const response = await fetch(new URL('/rest/v1/', supabaseBase()), {
+    headers: { apikey: required('LINKEDIN_SCANNER_SUPABASE_SECRET_KEY'), Accept: 'application/openapi+json' },
+    signal: AbortSignal.timeout(15000),
+  });
+  const schema = await response.json().catch(() => null) as { definitions?: Record<string, { properties?: Record<string, unknown> }>; paths?: Record<string, unknown> } | null;
+  if (!response.ok || !schema || typeof schema !== 'object') throw new Error(`Supabase table discovery failed (${response.status}).`);
+  const definitions = schema.definitions || {};
+  const paths = schema.paths || {};
+  return Object.keys(paths).filter(path => /^\/[a-zA-Z_][a-zA-Z_0-9]*$/.test(path)).slice(0, 100).map(path => ({ name: path.slice(1), columns: Object.keys(definitions[path.slice(1)]?.properties || {}).slice(0, 100) }));
+}
+
 export async function scannerTableRequest(table: string, method: SupabaseMethod, query: Record<string, string>, body?: unknown): Promise<unknown> {
   if (!/^[a-zA-Z_][a-zA-Z_0-9]*$/.test(table)) throw new Error('Invalid table name.');
   if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(method)) throw new Error('Invalid database method.');
@@ -67,8 +85,7 @@ export async function scannerTableRequest(table: string, method: SupabaseMethod,
     throw new Error('Update and delete require a row filter.');
   }
   if ((method === 'POST' || method === 'PATCH') && (body === undefined || JSON.stringify(body).length > 100_000)) throw new Error('A JSON body under 100,000 characters is required.');
-  const base = new URL(required('LINKEDIN_SCANNER_SUPABASE_URL'));
-  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || (base.pathname !== '/' && base.pathname !== '')) throw new Error('Invalid Supabase project URL.');
+  const base = supabaseBase();
   const url = new URL(`/rest/v1/${table}`, base);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
   if (method === 'GET' && !url.searchParams.has('limit')) url.searchParams.set('limit', '100');

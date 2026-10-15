@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { listScannerPath, readScannerFile, scannerTableRequest, writeScannerFile } from '../lib/server/linkedin-scanner';
+import { listScannerPath, listScannerTables, readScannerFile, scannerTableRequest, writeScannerFile } from '../lib/server/linkedin-scanner';
 
 const originalFetch = globalThis.fetch;
 const originalPat = process.env.LINKEDIN_SCANNER_PAT;
@@ -51,4 +51,15 @@ test('Supabase connector requires a row filter for mutations and keeps key serve
   await assert.rejects(() => scannerTableRequest('jobs', 'DELETE', {}), /row filter/);
   assert.deepEqual(await scannerTableRequest('jobs', 'PATCH', { id: 'eq.123' }, { status: 'done' }), [{ id: 123, status: 'done' }]);
   assert.equal(calls, 1);
+});
+
+test('Supabase table discovery returns names and columns for choosing the right data source', async () => {
+  process.env.LINKEDIN_SCANNER_SUPABASE_URL = 'https://scanner.supabase.co';
+  process.env.LINKEDIN_SCANNER_SUPABASE_SECRET_KEY = 'test-secret';
+  globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), 'https://scanner.supabase.co/rest/v1/');
+    assert.equal(new Headers(init?.headers).get('Accept'), 'application/openapi+json');
+    return Response.json({ paths: { '/connect_jobs': {}, '/rpc/do_work': {} }, definitions: { connect_jobs: { properties: { id: {}, sent_at: {} } } } });
+  };
+  assert.deepEqual(await listScannerTables(), [{ name: 'connect_jobs', columns: ['id', 'sent_at'] }]);
 });
