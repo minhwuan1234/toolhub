@@ -4,7 +4,7 @@ export type ContextTagSource = {
   active?: boolean;
   taskText?: string;
   handoffMode?: 'receive' | 'send';
-  contextFiles: Array<{ id: string; name: string; content: string }>;
+  contextFiles: Array<{ id: string; name: string; content: string; repository?: 'linkedin-scanner'; repoPath?: string; sha?: string }>;
   contextTags: Array<{ id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null }>;
 };
 

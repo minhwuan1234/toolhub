@@ -16,7 +16,7 @@ import { initialUiScreenContextHashes, uiScreenContextCatalog, uiScreenContextHa
 import { graphPreviewDocument } from '@/lib/graph-preview';
 import { GraphRunOutputDialog, HumanApprovalNodeDialog } from './human-approval-dialog';
 
-type ContextFile = { id: string; name: string; content: string };
+type ContextFile = { id: string; name: string; content: string; repository?: 'linkedin-scanner'; repoPath?: string; sha?: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
 type GraphNode = { id: string; number: number; x: number; y: number; kind: 'workflow' | 'context' | 'agent' | 'tool-calling' | 'human-approval' | 'skill' | 'agent-handoff'; name: string; icon: NodeIcon; active: boolean; contextText: string; contextFiles: ContextFile[]; contextTags: ContextTag[]; handoffMode: 'receive' | 'send'; testDocument: string; useTestDocument: boolean; taskText: string; instructionPrompt: string; lastOutput: string };
 type GraphLink = { id: string; source: string; target: string; command: 'input' | 'approve' | 'deny' | 'loop' };
@@ -85,7 +85,7 @@ function isGraphNode(value: unknown): value is GraphNode {
 
 function normalizeNode(node: GraphNode): GraphNode {
   const kind = node.kind === 'context' || node.kind === 'agent' || node.kind === 'tool-calling' || node.kind === 'human-approval' || node.kind === 'skill' || node.kind === 'agent-handoff' ? node.kind : 'workflow';
-  const contextFiles = Array.isArray(node.contextFiles) ? node.contextFiles.filter((file): file is ContextFile => Boolean(file && typeof file === 'object' && typeof file.id === 'string' && typeof file.name === 'string' && typeof file.content === 'string')).slice(0, 20) : [];
+  const contextFiles = Array.isArray(node.contextFiles) ? node.contextFiles.filter((file): file is ContextFile => Boolean(file && typeof file === 'object' && typeof file.id === 'string' && typeof file.name === 'string' && typeof file.content === 'string' && (!file.repoPath || file.repository === 'linkedin-scanner'))).slice(0, 20) : [];
   const fileIds = new Set(contextFiles.map(file => file.id));
   const previousTags = Array.isArray(node.contextTags) ? node.contextTags.filter((tag): tag is ContextTag => Boolean(tag && typeof tag === 'object' && typeof tag.id === 'string' && typeof tag.name === 'string' && (tag.kind === 'text' && typeof tag.text === 'string' || tag.kind === 'file' && typeof tag.fileId === 'string' && fileIds.has(tag.fileId)))).slice(0, 30) : [];
   let contextText = typeof node.contextText === 'string' ? node.contextText : '';
@@ -215,6 +215,8 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
   const [renamingNode, setRenamingNode] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
   const [readingFiles, setReadingFiles] = useState(false);
+  const [repoBrowser, setRepoBrowser] = useState<{ path: string; files: Array<{ path: string; type: string }> } | null>(null);
+  const [repoLoading, setRepoLoading] = useState(false);
   const [tagPicker, setTagPicker] = useState<{ start: number; query: string; x: number; y: number } | null>(null);
   const [tagPickerIndex, setTagPickerIndex] = useState(0);
   const [tagPreview, setTagPreview] = useState<{ name: string; x: number; y: number } | null>(null);
@@ -468,7 +470,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
     if (runningAgent || !node.active) return;
     const incomingAgents = routesForAgent(agentLinks, agentId).incoming;
     const received = agentOutputs.filter(output => incomingAgents.includes(output.agentId)).map(output => `## ${output.agentId} handoff\n${output.content}`).join('\n\n');
-    const handoffData = Object.fromEntries(nodes.filter(item => item.kind === 'agent-handoff' && item.handoffMode === 'receive').map(item => [item.id, receiveHandoffContent(received, item.testDocument, item.useTestDocument)]));
+    const handoffData = Object.fromEntries(nodes.filter(item => item.kind === 'agent-handoff' && item.handoffMode === 'receive').map(item => [item.id, receiveHandoffContent(received, item.testDocument, item.useTestDocument).slice(0, 8000)]));
     const input = resolveGraphAgentInput(node.id, node.instructionPrompt, nodes, links, handoffData);
     if (!input.ok) { setOutputError(input.error); return; }
     setRunningAgent(true);
@@ -485,7 +487,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
         }
         if (lastSavedGraphRef.current !== serialized) throw new Error('The graph could not be saved. Reload it before running this node.');
       }
-      const response = await fetch('/api/graph-agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, nodeId: node.id, message: input.content }) });
+      const response = await fetch('/api/graph-agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, nodeId: node.id, handoffData }) });
       const data = await response.json() as { result?: { content: string }; error?: string };
       if (!response.ok || !data.result?.content) throw new Error(data.error || 'AI Agent returned no output.');
       const content = data.result.content;
@@ -640,6 +642,43 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
       setReadingFiles(false);
       if (contextFileRef.current) contextFileRef.current.value = '';
     }
+  }
+
+  async function browseRepository(path = '') {
+    setRepoLoading(true);
+    setFileError('');
+    try {
+      const response = await fetch(`/api/repository-context?agentId=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`, { cache: 'no-store' });
+      const data = await response.json() as { files?: Array<{ path: string; type: string }>; error?: string };
+      if (!response.ok || !Array.isArray(data.files)) throw new Error(data.error || 'Could not list repository files.');
+      setRepoBrowser({ path, files: data.files });
+    } catch (error) { setFileError(error instanceof Error ? error.message : 'Could not list repository files.'); }
+    finally { setRepoLoading(false); }
+  }
+
+  async function linkRepositoryFile(nodeId: string, path: string) {
+    setRepoLoading(true);
+    setFileError('');
+    try {
+      const response = await fetch(`/api/repository-context?agentId=${encodeURIComponent(agentId)}&mode=read&path=${encodeURIComponent(path)}`, { cache: 'no-store' });
+      const data = await response.json() as { content?: string; sha?: string; error?: string };
+      if (!response.ok || typeof data.content !== 'string' || !data.sha) throw new Error(data.error || 'Could not read repository file.');
+      const node = nodesRef.current.find(item => item.id === nodeId);
+      if (!node) return;
+      if (node.contextFiles.some(file => file.repoPath === path)) { setRepoBrowser(null); return; }
+      if (node.contextFiles.length >= 20) throw new Error('A context can include up to 20 files.');
+      const baseName = path.split('/').pop() || path;
+      const baseTag = baseName.replace(/\.[^.]+$/, '').replace(/[^\w .-]/g, '').trim().slice(0, 35) || 'File';
+      const existing = new Set(tagNamesIn(node.contextText).map(name => name.toLowerCase()));
+      let tagName = baseTag;
+      for (let suffix = 2; existing.has(tagName.toLowerCase()); suffix++) tagName = `${baseTag.slice(0, 35)} ${suffix}`;
+      const contextText = `${node.contextText}${node.contextText.trim() ? '\n\n' : ''}/${tagName}/ *${path}*`;
+      if (contextText.length + node.contextFiles.reduce((sum, file) => sum + file.content.length, 0) + data.content.length > maxContextCharacters) throw new Error('Combined context is over the 200,000 character limit.');
+      const contextFiles = [...node.contextFiles, { id: crypto.randomUUID(), name: path, content: data.content, repository: 'linkedin-scanner' as const, repoPath: path, sha: data.sha }];
+      updateNode(nodeId, { contextText, contextFiles, contextTags: parseContextTags(contextText, contextFiles, node.contextTags) });
+      setRepoBrowser(null);
+    } catch (error) { setFileError(error instanceof Error ? error.message : 'Could not link repository file.'); }
+    finally { setRepoLoading(false); }
   }
 
   function targetAt(clientX: number, clientY: number, source: string) {
@@ -921,7 +960,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
         })()}
       </DialogContent>
     </Dialog>
-    <Dialog open={Boolean(editingNode)} onOpenChange={open => { if (!open) { setEditingNode(null); setTagPicker(null); setTagPreview(null); } }}>
+    <Dialog open={Boolean(editingNode)} onOpenChange={open => { if (!open) { setEditingNode(null); setTagPicker(null); setTagPreview(null); setRepoBrowser(null); } }}>
       <DialogContent className="node-inspector node-inspector-setup node-inspector-agent workflow-context-dialog">
         <header className="inspector-heading"><span className="inspector-icon"><FileText size={21}/></span><DialogTitle>Context Builder</DialogTitle></header>
         <DialogDescription className="sr-only">Write context and tags in one field, and attach files for connected workflow nodes.</DialogDescription>
@@ -945,9 +984,10 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
                   {tagPicker && suggestedTags.length > 0 && <div className="workflow-context-suggestions" role="listbox" aria-label="Existing tags" style={{ left: tagPicker.x, top: tagPicker.y }}>{suggestedTags.map((name, index) => <button type="button" role="option" aria-selected={index === tagPickerIndex} key={name} onMouseDown={event => event.preventDefault()} onClick={() => selectTagSuggestion(name, node)}>{name}</button>)}</div>}
                   {tagPreview && <div className="workflow-context-tag-preview" role="dialog" aria-label={`Content for ${tagPreview.name}`} style={{ left: tagPreview.x, top: tagPreview.y }}><div className="workflow-context-tag-preview-heading"><strong>{tagPreview.name}</strong><button type="button" aria-label="Close tag content" onClick={() => setTagPreview(null)}>×</button></div><div className="workflow-context-tag-preview-body">{(() => { const result = resolveTag(tagPreview.name, tagRegistry); return result.ok ? result.content : result.error; })()}</div></div>}
                 </div>
-                <div className="workflow-context-composer-footer"><div className="workflow-context-file-list">{node.contextFiles.map(file => <span key={file.id} className="workflow-context-file-chip" title={file.name}><FileText size={14}/>{file.name}<button type="button" aria-label={`Remove ${file.name}`} disabled={readingFiles} onClick={() => updateNode(node.id, { contextFiles: node.contextFiles.filter(item => item.id !== file.id), contextTags: node.contextTags.filter(tag => tag.fileId !== file.id) })}>×</button></span>)}</div><input ref={contextFileRef} id="workflow-context-file" type="file" accept={contextFileAccept} multiple hidden onChange={event => { void attachContextFiles(node.id, event.target.files); }}/><button type="button" className="workflow-context-attach" disabled={readingFiles} onClick={() => contextFileRef.current?.click()}><FileText size={16}/>{readingFiles ? 'Reading files…' : 'Attach files'}</button></div>
+                <div className="workflow-context-composer-footer"><div className="workflow-context-file-list">{node.contextFiles.map(file => <span key={file.id} className="workflow-context-file-chip" title={file.repoPath ? `LinkedIn Scanner / ${file.repoPath}` : file.name}><FileText size={14}/>{file.repoPath ? `LinkedIn Scanner / ${file.repoPath}` : file.name}{file.repoPath && <span className="workflow-repo-linked">Linked</span>}<button type="button" aria-label={`Remove ${file.name}`} disabled={readingFiles || repoLoading} onClick={() => { const contextFiles = node.contextFiles.filter(item => item.id !== file.id); const contextText = file.repoPath ? node.contextText.replace(new RegExp(`(^|\\s)/([^/*\\n]{1,40})/\\s*\\*${file.repoPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\*`, 'g'), '').trim() : node.contextText; updateNode(node.id, { contextText, contextFiles, contextTags: parseContextTags(contextText, contextFiles, node.contextTags) }); }}>×</button></span>)}</div><input ref={contextFileRef} id="workflow-context-file" type="file" accept={contextFileAccept} multiple hidden onChange={event => { void attachContextFiles(node.id, event.target.files); }}/><button type="button" className="workflow-context-attach" disabled={readingFiles || repoLoading} onClick={() => { void browseRepository(); }}>Repository file</button><button type="button" className="workflow-context-attach" disabled={readingFiles || repoLoading} onClick={() => contextFileRef.current?.click()}><FileText size={16}/>{readingFiles ? 'Reading files…' : 'Attach files'}</button></div>
               </div>
             </div>
+            {repoBrowser && <div className="workflow-repo-browser"><div className="workflow-repo-browser-heading"><strong>LinkedIn Scanner / {repoBrowser.path}</strong><button type="button" onClick={() => setRepoBrowser(null)}>×</button></div><div className="workflow-repo-browser-list">{repoBrowser.path && <button type="button" disabled={repoLoading} onClick={() => { void browseRepository(repoBrowser.path.split('/').slice(0, -1).join('/')); }}>← ..</button>}{repoBrowser.files.map(file => <button type="button" key={file.path} disabled={repoLoading} onClick={() => { if (file.type === 'dir') void browseRepository(file.path); else void linkRepositoryFile(node.id, file.path); }}><FileText size={14}/><span>{file.path.split('/').pop()}</span><small>{file.type === 'dir' ? 'Folder' : 'File'}</small></button>)}</div></div>}
             {fileError && <small role="alert" className="workflow-context-error">{fileError}</small>}
           </div>;
         })()}

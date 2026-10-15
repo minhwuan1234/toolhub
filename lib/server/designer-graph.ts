@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { buildConnectedTagRegistry, resolveConnectedInput, resolveGraphAgentInput, type ContextTagSource, type ContextInputLink } from '@/lib/context-tags';
 import { runAgent } from '@/lib/agent-team';
 import { getDatabase } from './database';
+import { readScannerFile } from './linkedin-scanner';
+import { getAgentCard } from './agent-cards';
+import { isToolImported } from './imported-tools';
 
 export type DesignerGraphNode = ContextTagSource & {
   id: string;
@@ -44,7 +47,7 @@ export function validateDesignerGraph(value: unknown): DesignerGraphDocument {
   const graph = value as Record<string, unknown>;
   if (!Array.isArray(graph.nodes) || graph.nodes.length > 100 || !Array.isArray(graph.links) || graph.links.length > 300) throw new Error('Graph exceeds its node or link limit.');
   const nodes = graph.nodes as unknown[];
-  if (nodes.some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as DesignerGraphNode).id !== 'string' || !(item as DesignerGraphNode).id || (item as DesignerGraphNode).id.length > 100 || !['workflow', 'context', 'agent', 'tool-calling', 'human-approval', 'skill', 'agent-handoff'].includes((item as DesignerGraphNode).kind) || !Number.isFinite((item as DesignerGraphNode).x) || !Number.isFinite((item as DesignerGraphNode).y) || !Array.isArray((item as DesignerGraphNode).contextTags) || !Array.isArray((item as DesignerGraphNode).contextFiles) || (item as DesignerGraphNode).contextTags.length > 30 || (item as DesignerGraphNode).contextFiles.length > 20)) throw new Error('Graph has an invalid node.');
+  if (nodes.some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as DesignerGraphNode).id !== 'string' || !(item as DesignerGraphNode).id || (item as DesignerGraphNode).id.length > 100 || !['workflow', 'context', 'agent', 'tool-calling', 'human-approval', 'skill', 'agent-handoff'].includes((item as DesignerGraphNode).kind) || !Number.isFinite((item as DesignerGraphNode).x) || !Number.isFinite((item as DesignerGraphNode).y) || !Array.isArray((item as DesignerGraphNode).contextTags) || !Array.isArray((item as DesignerGraphNode).contextFiles) || (item as DesignerGraphNode).contextTags.length > 30 || (item as DesignerGraphNode).contextFiles.length > 20 || (item as DesignerGraphNode).contextFiles.some(file => typeof file.id !== 'string' || typeof file.name !== 'string' || typeof file.content !== 'string' || file.content.length > 200000 || file.repoPath !== undefined && (file.repository !== 'linkedin-scanner' || typeof file.repoPath !== 'string' || file.repoPath.length > 500 || !file.repoPath)))) throw new Error('Graph has an invalid node.');
   const ids = new Set(nodes.map(item => (item as DesignerGraphNode).id));
   if (ids.size !== nodes.length) throw new Error('Graph has duplicate node IDs.');
   const kinds = new Map(nodes.map(item => [(item as DesignerGraphNode).id, (item as DesignerGraphNode).kind]));
@@ -55,6 +58,29 @@ export function validateDesignerGraph(value: unknown): DesignerGraphDocument {
     screenContextsSeeded: graph.screenContextsSeeded === true,
     screenContextVersion: graph.screenContextVersion === 2 ? 2 : 0,
   };
+}
+
+async function refreshLinkedContext(document: DesignerGraphDocument, agentId: string, targetNodeId: string, selectionText = ''): Promise<DesignerGraphDocument> {
+  const connected = new Set(document.links.filter(link => link.command === 'input' && link.target === targetNodeId).map(link => link.source));
+  const playingContext = document.nodes.some(node => node.id === targetNodeId && node.kind === 'context');
+  if (playingContext) connected.add(targetNodeId);
+  let selectedText = selectionText;
+  for (const node of document.nodes.filter(item => connected.has(item.id) && item.kind === 'workflow')) {
+    selectedText += `\n${node.taskText || ''}`;
+    for (const link of document.links.filter(item => item.command === 'input' && item.target === node.id)) connected.add(link.source);
+  }
+  const selectedTags = new Set(Array.from(selectedText.matchAll(/(^|\s)\/([^/*\n]{1,40})\//g), match => match[2].trim().toLowerCase()));
+  const selectedFileIds = new Set(document.nodes.filter(node => node.kind === 'context' && node.active !== false && connected.has(node.id)).flatMap(node => node.contextTags.filter(tag => tag.kind === 'file' && tag.fileId && selectedTags.has(tag.name.toLowerCase())).map(tag => tag.fileId)));
+  const linked = document.nodes.filter(node => node.kind === 'context' && node.active !== false && connected.has(node.id)).flatMap(node => node.contextFiles.filter(file => file.repository === 'linkedin-scanner' && file.repoPath && (playingContext || selectedFileIds.has(file.id))));
+  if (!linked.length) return document;
+  const card = await getAgentCard(agentId);
+  if (!card?.toolIds.includes('linkedin-scanner') || !await isToolImported('linkedin-scanner')) throw new Error('Repository access is not enabled for this agent.');
+  const fresh = new Map(await Promise.all([...new Set(linked.map(file => file.repoPath!))].map(async path => {
+    const file = await readScannerFile(path);
+    if (file.content.length > 200000) throw new Error(`${path} exceeds the context limit.`);
+    return [path, file] as const;
+  })));
+  return { ...document, nodes: document.nodes.map(node => connected.has(node.id) && node.kind === 'context' ? { ...node, contextFiles: node.contextFiles.map(file => file.repository === 'linkedin-scanner' && file.repoPath && fresh.has(file.repoPath) ? { ...file, content: fresh.get(file.repoPath)!.content, sha: fresh.get(file.repoPath)!.sha } : file) } : node) };
 }
 
 export async function getDesignerGraph(agentId = 'designer'): Promise<{ document: DesignerGraphDocument | null; revision: number }> {
@@ -214,8 +240,11 @@ export function graphRunIncomingLinks(document: DesignerGraphDocument, nodeId: s
 }
 
 export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', approvedOutput = '', liveHandoffs: Record<string, string> = {}, agentId = 'designer') {
-  const { document } = await getDesignerGraph(agentId);
-  if (!document) throw new Error('Save the agent graph before running it through MCP.');
+  const stored = await getDesignerGraph(agentId);
+  if (!stored.document) throw new Error('Save the agent graph before running it through MCP.');
+  const savedNode = stored.document.nodes.find(item => item.id === nodeId);
+  const initialTask = savedNode ? graphAgentTask(savedNode, stored.document, fallbackTask || (approvedOutput ? 'Continue the workflow using the approved output from the previous node.' : '')) : '';
+  const document = await refreshLinkedContext(stored.document, agentId, nodeId, initialTask);
   const node = document.nodes.find(item => item.id === nodeId);
   if (!node || node.kind !== 'agent') throw new Error('AI Agent node not found.');
   if (!node.active) throw new Error('AI Agent node is inactive.');
@@ -234,8 +263,9 @@ export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', app
 }
 
 export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string, string> = {}, agentId = 'designer') {
-  const { document } = await getDesignerGraph(agentId);
-  if (!document) throw new Error('Save the agent graph before running a node.');
+  const stored = await getDesignerGraph(agentId);
+  if (!stored.document) throw new Error('Save the agent graph before running a node.');
+  const document = stored.document.nodes.some(node => node.id === nodeId && node.kind === 'context') ? await refreshLinkedContext(stored.document, agentId, nodeId) : stored.document;
   const nodeById = new Map(document.nodes.map(node => [node.id, node]));
   if (!nodeById.has(nodeId)) throw new Error('Graph node not found.');
   const visiting = new Set<string>();

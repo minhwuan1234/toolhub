@@ -797,6 +797,17 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .workflow-context-file-chip > svg { flex:none; }
 .workflow-context-file-chip > button { flex:none; padding:0 2px; border:0; background:transparent; color:#787774; font-size:16px; line-height:1; cursor:pointer; }
 .workflow-context-file-chip > button:disabled { opacity:.5; cursor:default; }
+.workflow-repo-linked { color:#238452; font-size:10px; }
+.workflow-repo-browser { flex:none; overflow:hidden; border:1px solid #e5e4df; border-radius:8px; background:#fff; }
+.workflow-repo-browser-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 10px; border-bottom:1px solid #eeede9; font-size:12px; }
+.workflow-repo-browser-heading strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.workflow-repo-browser-heading button { border:0; background:transparent; color:#787774; font-size:17px; cursor:pointer; }
+.workflow-repo-browser-list { max-height:180px; overflow:auto; padding:4px; }
+.workflow-repo-browser-list button { display:flex; align-items:center; gap:8px; width:100%; min-height:32px; padding:5px 8px; border:0; border-radius:5px; background:transparent; color:#37352f; font:inherit; font-size:12px; text-align:left; cursor:pointer; }
+.workflow-repo-browser-list button:hover:not(:disabled) { background:#f1f0ed; }
+.workflow-repo-browser-list button:disabled { opacity:.5; cursor:default; }
+.workflow-repo-browser-list button span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.workflow-repo-browser-list button small { color:#89877f; font-size:11px; }
 .workflow-context-attach { display:inline-flex; align-items:center; justify-content:center; gap:6px; flex:none; min-height:34px; padding:0 10px; border:1px solid #e3e3e0; border-radius:7px; background:#fafaf9; color:#37352f; font-size:12px; font-weight:500; cursor:pointer; }
 .workflow-context-attach:hover:not(:disabled) { background:#f1f0ed; }
 .workflow-context-attach:disabled { opacity:.5; cursor:default; }
