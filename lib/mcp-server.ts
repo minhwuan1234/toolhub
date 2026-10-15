@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { agents, isAgentId, runAgent, type AgentResult } from './agent-team';
 import { listAgentCards, saveAgentCard, deleteAgentCard } from './server/agent-cards';
 import { getDesignerGraph, getDesignerGraphOutputs, runStoredGraphAgent } from './server/designer-graph';
+import { listScannerPath, readScannerFile, scannerConnectionStatus, scannerTableRequest, writeScannerFile } from './server/linkedin-scanner';
 
 export type JsonRpcRequest = {
   jsonrpc?: string;
@@ -52,6 +53,31 @@ function tools() {
       name: 'toolhub_list_departments',
       description: 'List the departments currently stored in Toolhub.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    },
+    {
+      name: 'linkedin_scanner_status',
+      description: 'Report whether Toolhub has the LinkedIn Scanner GitHub and Supabase credentials configured. Never returns secret values.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    },
+    {
+      name: 'linkedin_scanner_list_files',
+      description: 'List a directory in the LinkedIn Scanner GitHub repository. Use an empty path for the repository root.',
+      inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false },
+    },
+    {
+      name: 'linkedin_scanner_read_file',
+      description: 'Read a text file from the LinkedIn Scanner GitHub repository. Returns its SHA for later updates.',
+      inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false },
+    },
+    {
+      name: 'linkedin_scanner_write_file',
+      description: 'Create or update a text file in the LinkedIn Scanner GitHub repository. Pass the current SHA when updating an existing file. This commits directly to the default branch.',
+      inputSchema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' }, message: { type: 'string' }, sha: { type: 'string' } }, required: ['path', 'content', 'message'], additionalProperties: false },
+    },
+    {
+      name: 'linkedin_scanner_table',
+      description: 'Read or mutate rows in a LinkedIn Scanner Supabase table through the Data API. Use PostgREST query parameters (for example id=eq.123); PATCH and DELETE require a filter. This does not run SQL or change schema.',
+      inputSchema: { type: 'object', properties: { table: { type: 'string' }, method: { type: 'string', enum: ['GET', 'POST', 'PATCH', 'DELETE'] }, query: { type: 'object', additionalProperties: { type: 'string' } }, body: {} }, required: ['table', 'method'], additionalProperties: false },
     },
     {
       name: 'agent_team_list',
@@ -130,6 +156,27 @@ function toolResult(value: unknown, isError = false): ToolResult {
 export async function invokeMcpTool(name: string, args: Record<string, unknown> = {}): Promise<ToolResult> {
   if (name === 'toolhub_health') return toolResult({ status: 'ok', service: 'toolhub-mcp' });
   if (name === 'toolhub_list_departments') return toolResult(['Account', 'Business Development', 'Production', 'Project Management', 'HR', 'Andy Tran', 'Marketing']);
+  if (name === 'linkedin_scanner_status') return toolResult(scannerConnectionStatus());
+  if (name.startsWith('linkedin_scanner_')) {
+    try {
+      if (name === 'linkedin_scanner_list_files') {
+        if (typeof args.path !== 'string') throw new Error('path must be a string.');
+        return toolResult({ files: await listScannerPath(args.path) });
+      }
+      if (name === 'linkedin_scanner_read_file') {
+        if (typeof args.path !== 'string') throw new Error('path must be a string.');
+        return toolResult(await readScannerFile(args.path));
+      }
+      if (name === 'linkedin_scanner_write_file') {
+        if (typeof args.path !== 'string' || typeof args.content !== 'string' || typeof args.message !== 'string' || (args.sha !== undefined && typeof args.sha !== 'string')) throw new Error('Invalid file operation.');
+        return toolResult(await writeScannerFile(args.path, args.content, args.message, args.sha as string | undefined));
+      }
+      if (name === 'linkedin_scanner_table') {
+        if (typeof args.table !== 'string' || !['GET', 'POST', 'PATCH', 'DELETE'].includes(String(args.method)) || (args.query !== undefined && (!args.query || typeof args.query !== 'object' || Array.isArray(args.query)))) throw new Error('Invalid table operation.');
+        return toolResult({ rows: await scannerTableRequest(args.table, args.method as 'GET' | 'POST' | 'PATCH' | 'DELETE', (args.query || {}) as Record<string, string>, args.body) });
+      }
+    } catch (error) { return toolResult({ error: error instanceof Error ? error.message : 'LinkedIn Scanner request failed.' }, true); }
+  }
   if (name === 'agent_team_list') {
     try {
       const cards = await listAgentCards();
@@ -234,7 +281,7 @@ export async function handleMcpRequest(input: JsonRpcRequest): Promise<JsonRpcRe
       protocolVersion,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: 'toolhub-mcp', version: '0.4.0' },
-      instructions: 'Toolhub MCP controls the built-in BA, UI/UX, and Developer agents and saved custom agent cards. Use designer_graph_get to inspect the saved UI/UX graph and designer_graph_run_node to execute one of its active AI Agent nodes. Use agent_team_list to inspect cards and IDs; agent_run for one agent; agent_team_run for built-in handoffs; agent_team_parallel_run or agent_multi_run for independent tasks. MCP access does not expose the OpenAI API key. Results describe agent output only; do not claim external actions were performed.',
+      instructions: 'Toolhub MCP controls the built-in BA, UI/UX, and Developer agents and saved custom agent cards. Use designer_graph_get to inspect the saved UI/UX graph and designer_graph_run_node to execute one of its active AI Agent nodes. Use agent_team_list to inspect cards and IDs; agent_run for one agent; agent_team_run for built-in handoffs; agent_team_parallel_run or agent_multi_run for independent tasks. LinkedIn Scanner tools access only minhwuan1234/linkedin-daily-scanner and its configured Supabase Data API; status never exposes credentials. MCP access does not expose API keys. Results describe agent output only; do not claim external actions were performed.',
     });
   }
 
