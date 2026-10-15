@@ -11,7 +11,6 @@ const fields = [
   { key: 'name', label: 'Agent name', hint: 'Name shown on the canvas and in chat', max: 80 },
   { key: 'role', label: 'Role', hint: 'For example, Business Analyst', max: 80 },
   { key: 'mission', label: 'Mission', hint: 'The main outcome this agent is responsible for', max: 1000 },
-  { key: 'responsibilities', label: 'Responsibilities', hint: 'What this agent should do', max: 2000 },
 ] as const;
 
 type ToolInfo = typeof toolCatalog[number];
@@ -71,7 +70,7 @@ export function NodeInspector({ node, incoming, configured, agentState, canManag
       {isAgent ? <form className="agent-card-form" onSubmit={save}>
         {fields.map(field => <label key={field.key} className="agent-card-field">
           <span>{field.label}</span>
-          {field.key === 'name' || field.key === 'role' ? <input required maxLength={field.max} disabled={!canManageAgents || saving} value={draft[field.key]} placeholder={field.hint} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))}/> : <textarea required maxLength={field.max} disabled={!canManageAgents || saving} value={draft[field.key]} placeholder={field.hint} rows={field.key === 'responsibilities' ? 3 : 2} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))}/>}
+          {field.key === 'name' || field.key === 'role' ? <input required maxLength={field.max} disabled={!canManageAgents || saving} value={draft[field.key]} placeholder={field.hint} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))}/> : <textarea required maxLength={field.max} disabled={!canManageAgents || saving} value={draft[field.key]} placeholder={field.hint} rows={2} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))}/>}
         </label>)}
         <label className="agent-card-design"><input type="checkbox" checked={draft.useDesignGuidelines} disabled={!canManageAgents || saving} onChange={event => setDraft(current => ({ ...current, useDesignGuidelines: event.target.checked }))}/><span>Use current Toolhub DESIGN.md guidance</span></label>
         <div className="agent-tool-access"><strong>Tools</strong>
