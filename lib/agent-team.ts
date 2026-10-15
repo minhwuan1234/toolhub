@@ -59,6 +59,7 @@ export async function runAgent(agentId: AgentId, message: string, context = '', 
   type Payload = { error?: { message?: string }; output?: OutputItem[]; usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number } } };
   const history: unknown[] = [{ role: 'user', content: input }];
   let toolCalls = 0;
+  const toolErrors: string[] = [];
   for (let round = 0; round < 5; round++) {
     const requestInput = availableFunctions.length ? history : input;
     const reservation = await reserveAgentApiSpend(model, instructions + (availableFunctions.length ? JSON.stringify(availableFunctions) : ''), typeof requestInput === 'string' ? requestInput : JSON.stringify(requestInput), outputTokenLimit);
@@ -82,7 +83,11 @@ export async function runAgent(agentId: AgentId, message: string, context = '', 
           if (!call.call_id || !call.name || !call.arguments) throw new Error('Model returned an invalid tool call.');
           let result: unknown;
           try { result = await executeAgentFunction(agentId, call.name, JSON.parse(call.arguments) as unknown); }
-          catch (error) { result = { error: error instanceof Error ? error.message : 'Tool call failed.' }; }
+          catch (error) {
+            const detail = error instanceof Error ? error.message : 'Tool call failed.';
+            toolErrors.push(`${call.name}: ${detail}`);
+            result = { error: detail };
+          }
           history.push({ type: 'function_call_output', call_id: call.call_id, output: JSON.stringify(result).slice(0, 30000) });
           toolCalls++;
         }
@@ -90,6 +95,12 @@ export async function runAgent(agentId: AgentId, message: string, context = '', 
       }
       const content = payload.output?.flatMap(item => item.content ?? []).filter(item => item.type === 'output_text').map(item => item.text || '').join('\n').trim();
       if (!content) throw new Error(`${card.name} returned no text.`);
+      if (toolErrors.length) {
+        let reportedFailure = false;
+        try { reportedFailure = (JSON.parse(content) as { success?: unknown }).success === false; }
+        catch { /* Freeform model output has no machine-readable success state. */ }
+        if (reportedFailure) throw new Error(toolErrors.at(-1));
+      }
       return { agentId, name: card.name, content };
     } catch (error) {
       if (!settled) await settleAgentApiSpend(reservation, model);

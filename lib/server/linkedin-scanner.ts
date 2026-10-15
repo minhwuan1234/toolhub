@@ -61,8 +61,16 @@ type SupabaseMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 function supabaseBase(): URL {
   const base = new URL(required('LINKEDIN_SCANNER_SUPABASE_URL'));
-  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || (base.pathname !== '/' && base.pathname !== '')) throw new Error('Invalid Supabase project URL.');
+  if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || !['/', '', '/rest/v1', '/rest/v1/'].includes(base.pathname)) throw new Error('LINKEDIN_SCANNER_SUPABASE_URL must be a project URL or its /rest/v1 endpoint.');
+  base.pathname = '/';
   return base;
+}
+
+function supabaseError(status: number, result: unknown, operation: string): Error {
+  const details = result && typeof result === 'object' ? result as Record<string, unknown> : {};
+  const code = typeof details.code === 'string' && /^[\w-]{1,60}$/.test(details.code) ? `, ${details.code}` : '';
+  const message = typeof details.message === 'string' ? details.message.slice(0, 300) : '';
+  return new Error(`${operation} failed (HTTP ${status}${code})${message ? `: ${message}` : '.'}`);
 }
 
 export async function listScannerTables(): Promise<Array<{ name: string; columns: string[] }>> {
@@ -71,7 +79,8 @@ export async function listScannerTables(): Promise<Array<{ name: string; columns
     signal: AbortSignal.timeout(15000),
   });
   const schema = await response.json().catch(() => null) as { definitions?: Record<string, { properties?: Record<string, unknown> }>; paths?: Record<string, unknown> } | null;
-  if (!response.ok || !schema || typeof schema !== 'object') throw new Error(`Supabase table discovery failed (${response.status}).`);
+  if (!response.ok) throw supabaseError(response.status, schema, 'Supabase table discovery');
+  if (!schema || typeof schema !== 'object' || !schema.paths) throw new Error('Supabase table discovery returned no OpenAPI schema. Check that the Data API is enabled.');
   const definitions = schema.definitions || {};
   const paths = schema.paths || {};
   return Object.keys(paths).filter(path => /^\/[a-zA-Z_][a-zA-Z_0-9]*$/.test(path)).slice(0, 100).map(path => ({ name: path.slice(1), columns: Object.keys(definitions[path.slice(1)]?.properties || {}).slice(0, 100) }));
@@ -97,7 +106,7 @@ export async function scannerTableRequest(table: string, method: SupabaseMethod,
     signal: AbortSignal.timeout(15000),
   });
   const result = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(`Supabase request failed (${response.status}): ${result && typeof result === 'object' && 'message' in result ? String(result.message).slice(0, 300) : 'Request rejected.'}`);
+  if (!response.ok) throw supabaseError(response.status, result, 'Supabase table request');
   return result;
 }
 

@@ -7,11 +7,12 @@ import { executeAgentFunction } from '../lib/server/agent-tool-runtime';
 
 void test('only a granted agent receives and executes an imported tool, and revocation takes effect immediately', async () => {
   const globalDatabase = globalThis as typeof globalThis & { toolhubPool?: Pool };
-  const previous = { pool: globalDatabase.toolhubPool, url: process.env.DATABASE_URL, key: process.env.OPENAI_API_KEY, pat: process.env.LINKEDIN_SCANNER_PAT, fetch: globalThis.fetch };
+  const previous = { pool: globalDatabase.toolhubPool, url: process.env.DATABASE_URL, key: process.env.OPENAI_API_KEY, pat: process.env.LINKEDIN_SCANNER_PAT, supabaseUrl: process.env.LINKEDIN_SCANNER_SUPABASE_URL, supabaseKey: process.env.LINKEDIN_SCANNER_SUPABASE_SECRET_KEY, fetch: globalThis.fetch };
   let granted = true;
   let imported = true;
   let modelCalls = 0;
   let githubCalls = 0;
+  let failDiscovery = false;
   const card = { ...defaultAgentCards[0], tool_ids: ['linkedin-scanner'], use_design_guidelines: false };
   const query = async (sql: string) => {
     if (sql.includes('FROM agent_cards')) return { rows: [{ ...card, tool_ids: granted ? ['linkedin-scanner'] : [] }] };
@@ -24,8 +25,11 @@ void test('only a granted agent receives and executes an imported tool, and revo
   process.env.DATABASE_URL = 'mock-only';
   process.env.OPENAI_API_KEY = 'mock-openai-key';
   process.env.LINKEDIN_SCANNER_PAT = 'mock-github-key';
+  process.env.LINKEDIN_SCANNER_SUPABASE_URL = 'https://scanner.supabase.co';
+  process.env.LINKEDIN_SCANNER_SUPABASE_SECRET_KEY = 'mock-supabase-key';
   globalThis.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes('scanner.supabase.co')) return Response.json({ code: 'PGRST301', message: 'Invalid API key' }, { status: 401 });
     if (url.includes('api.github.com')) {
       githubCalls++;
       if (url.endsWith('/contents/app')) return Response.json([{ type: 'file', path: 'app/settings.py', sha: 'file-sha' }]);
@@ -36,6 +40,11 @@ void test('only a granted agent receives and executes an imported tool, and revo
     const request = JSON.parse(init?.body as string) as { tools?: Array<{ name: string }>; input: unknown[] };
     assert.ok(request.tools?.some(tool => tool.name === 'scanner_read_file'));
     assert.ok(request.tools?.some(tool => tool.name === 'scanner_list_tables'));
+    if (failDiscovery) {
+      if (modelCalls === 4) return Response.json({ output: [{ type: 'function_call', call_id: 'call-3', name: 'scanner_list_tables', arguments: '{}' }] });
+      assert.ok(request.input.some(item => JSON.stringify(item).includes('PGRST301')));
+      return Response.json({ output: [{ type: 'message', content: [{ type: 'output_text', text: '{"success":false,"message":"Connection failed"}' }] }] });
+    }
     if (modelCalls === 1) return Response.json({ output: [{ type: 'function_call', call_id: 'call-1', name: 'scanner_read_file', arguments: '{"path":"app"}' }] });
     assert.ok(request.input.some(item => (item as { type?: string }).type === 'function_call_output'));
     if (modelCalls === 2) {
@@ -48,6 +57,8 @@ void test('only a granted agent receives and executes an imported tool, and revo
     assert.equal((await runAgent('ba', 'Read the scanner settings')).content, 'I read the file.');
     assert.equal(modelCalls, 3);
     assert.equal(githubCalls, 2);
+    failDiscovery = true;
+    await assert.rejects(() => runAgent('ba', 'List sent Connect records'), /scanner_list_tables: Supabase table discovery failed \(HTTP 401, PGRST301\): Invalid API key/);
     granted = false;
     await assert.rejects(() => executeAgentFunction('ba', 'scanner_read_file', { path: 'app/settings.py' }), /not granted|revoked/);
     imported = false;
@@ -58,5 +69,7 @@ void test('only a granted agent receives and executes an imported tool, and revo
     if (previous.url === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = previous.url;
     if (previous.key === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previous.key;
     if (previous.pat === undefined) delete process.env.LINKEDIN_SCANNER_PAT; else process.env.LINKEDIN_SCANNER_PAT = previous.pat;
+    if (previous.supabaseUrl === undefined) delete process.env.LINKEDIN_SCANNER_SUPABASE_URL; else process.env.LINKEDIN_SCANNER_SUPABASE_URL = previous.supabaseUrl;
+    if (previous.supabaseKey === undefined) delete process.env.LINKEDIN_SCANNER_SUPABASE_SECRET_KEY; else process.env.LINKEDIN_SCANNER_SUPABASE_SECRET_KEY = previous.supabaseKey;
   }
 });

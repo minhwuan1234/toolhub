@@ -54,7 +54,7 @@ test('Supabase connector requires a row filter for mutations and keeps key serve
 });
 
 test('Supabase table discovery returns names and columns for choosing the right data source', async () => {
-  process.env.LINKEDIN_SCANNER_SUPABASE_URL = 'https://scanner.supabase.co';
+  process.env.LINKEDIN_SCANNER_SUPABASE_URL = 'https://scanner.supabase.co/rest/v1';
   process.env.LINKEDIN_SCANNER_SUPABASE_SECRET_KEY = 'test-secret';
   globalThis.fetch = async (input, init) => {
     assert.equal(String(input), 'https://scanner.supabase.co/rest/v1/');
@@ -62,4 +62,11 @@ test('Supabase table discovery returns names and columns for choosing the right 
     return Response.json({ paths: { '/connect_jobs': {}, '/rpc/do_work': {} }, definitions: { connect_jobs: { properties: { id: {}, sent_at: {} } } } });
   };
   assert.deepEqual(await listScannerTables(), [{ name: 'connect_jobs', columns: ['id', 'sent_at'] }]);
+});
+
+test('Supabase discovery reports the upstream HTTP status and error code', async () => {
+  process.env.LINKEDIN_SCANNER_SUPABASE_URL = 'https://scanner.supabase.co';
+  process.env.LINKEDIN_SCANNER_SUPABASE_SECRET_KEY = 'test-secret';
+  globalThis.fetch = async () => Response.json({ code: 'PGRST301', message: 'Invalid API key' }, { status: 401 });
+  await assert.rejects(() => listScannerTables(), /Supabase table discovery failed \(HTTP 401, PGRST301\): Invalid API key/);
 });
