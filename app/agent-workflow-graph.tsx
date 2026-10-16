@@ -780,7 +780,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
 
   function startDrag(event: PointerEvent<HTMLButtonElement>, node: GraphNode) {
     event.stopPropagation();
-    if (managedGraph || event.button !== 0 || !event.isPrimary) return;
+    if (event.button !== 0 || !event.isPrimary) return;
     event.currentTarget.focus();
     suppressApprovalClickRef.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -792,7 +792,8 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
     const drag = dragRef.current;
     const stage = stageRef.current;
     if (!drag || drag.id !== id || !stage) return;
-    if (Math.hypot(event.clientX - drag.pointerX, event.clientY - drag.pointerY) > 4) suppressApprovalClickRef.current = true;
+    if (Math.hypot(event.clientX - drag.pointerX, event.clientY - drag.pointerY) <= 4 && !suppressApprovalClickRef.current) return;
+    suppressApprovalClickRef.current = true;
     const x = Math.max(8, drag.x + (event.clientX - drag.pointerX) / pan.zoom);
     const y = Math.max(8, drag.y + (event.clientY - drag.pointerY) / pan.zoom);
     setNodes(current => current.map(node => node.id === id ? { ...node, x, y } : node));
@@ -890,15 +891,16 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
         </svg>
         {nodes.map(node => <ContextMenu key={node.id}><ContextMenuTrigger className="workflow-graph-node-group" style={{ left: node.x, top: node.y, zIndex: 4 + node.number % 3 }}><button
           type="button" className="canvas-node workflow-graph-node" data-running={chatRunningNodeId === node.id} aria-busy={chatRunningNodeId === node.id}
-          aria-label={managedGraph ? node.name : `${node.name}. ${node.active ? node.kind === 'agent-handoff' ? node.handoffMode === 'receive' ? 'Receive data' : 'Send handoff' : 'Active' : 'Inactive'}. Drag or use arrow keys to move. Press Delete to remove.`}
+          aria-label={managedGraph ? `${node.name}. Drag to move.` : `${node.name}. ${node.active ? node.kind === 'agent-handoff' ? node.handoffMode === 'receive' ? 'Receive data' : 'Send handoff' : 'Active' : 'Inactive'}. Drag or use arrow keys to move. Press Delete to remove.`}
           onDoubleClick={() => { if (node.kind === 'context') { setFileError(''); setEditingNode(node.id); } else if (node.kind === 'workflow') setEditingWorkflow(node.id); else if (node.kind === 'agent') openAgentOutput(node); else if (node.kind === 'agent-handoff') setEditingHandoff(node.id); else if (node.kind === 'think') setEditingThink(node.id);
             else if (node.kind === 'repo-reader') setEditingRepo(node.id); }}
-          onClick={() => { if (node.kind === 'think') setEditingThink(node.id);
+          onClick={() => { if (suppressApprovalClickRef.current) { suppressApprovalClickRef.current = false; return; } if (node.kind === 'think') setEditingThink(node.id);
             else if (node.kind === 'repo-reader') setEditingRepo(node.id); if (node.kind === 'human-approval' && !suppressApprovalClickRef.current) setInspectingApproval(node.id); suppressApprovalClickRef.current = false; }}
           onPointerDown={event => startDrag(event, node)}
           onPointerMove={event => moveDrag(event, node.id)}
           onPointerUp={event => { dragRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
-          onPointerCancel={() => { dragRef.current = null; }}
+          onPointerCancel={() => { dragRef.current = null; suppressApprovalClickRef.current = true; }}
+          onLostPointerCapture={() => { dragRef.current = null; }}
           onKeyDown={event => {
             if (managedGraph) return;
             if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); event.stopPropagation(); if (!event.repeat) removeNode(node.id); return; }

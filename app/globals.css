@@ -809,7 +809,8 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .workflow-repo-browser-list button:disabled { opacity:.5; cursor:default; }
 .workflow-repo-browser-list button span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .workflow-repo-browser-list button small { color:#89877f; font-size:11px; }
-.workflow-graph.is-managed .workflow-graph-node { cursor:pointer; }
+.workflow-graph.is-managed .workflow-graph-node { cursor:grab; touch-action:none; }
+.workflow-graph.is-managed .workflow-graph-node:active { cursor:grabbing; }
 .repo-reader-dialog.node-inspector[data-slot='dialog-content'] { width:80vw; height:80vh; max-width:none; padding:0; gap:0; display:flex; flex-direction:column; overflow:hidden; }
 .repo-reader-algorithm { margin-left:auto; padding:4px 8px; border-radius:6px; background:#f1f0ed; color:#787774; font-size:11px; }
 .repo-reader-panels { display:grid; grid-template-columns:minmax(220px,30%) minmax(0,1fr); flex:1; min-height:0; }
