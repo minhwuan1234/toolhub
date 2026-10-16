@@ -808,6 +808,33 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .workflow-repo-browser-list button:disabled { opacity:.5; cursor:default; }
 .workflow-repo-browser-list button span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .workflow-repo-browser-list button small { color:#89877f; font-size:11px; }
+.workflow-graph.is-managed .workflow-graph-node { cursor:pointer; }
+.repo-reader-dialog.node-inspector[data-slot='dialog-content'] { width:80vw; height:80vh; max-width:none; padding:0; gap:0; display:flex; flex-direction:column; overflow:hidden; }
+.repo-reader-algorithm { margin-left:auto; padding:4px 8px; border-radius:6px; background:#f1f0ed; color:#787774; font-size:11px; }
+.repo-reader-panels { display:grid; grid-template-columns:minmax(220px,30%) minmax(0,1fr); flex:1; min-height:0; }
+.repo-reader-settings.agent-card-form { padding:20px; overflow:auto; justify-content:flex-start; border-right:1px solid #e8e7e3; }
+.repo-reader-settings input { width:100%; padding:9px 10px; border:1px solid #deddd8; border-radius:7px; outline:none; color:#37352f; font:inherit; font-size:13px; }
+.repo-reader-settings input:focus { border-color:#89877f; }
+.repo-reader-run { display:inline-flex; gap:6px; align-items:center; align-self:flex-end; }
+.repo-reader-run:disabled { opacity:.5; cursor:default; }
+.repo-reader-results { display:flex; flex-direction:column; min-height:0; min-width:0; }
+.repo-reader-result-heading { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; padding:16px 20px; border-bottom:1px solid #e8e7e3; font-size:13px; }
+.repo-reader-result-heading output { color:#89877f; font-size:11px; }
+.repo-reader-tabs { display:flex; gap:4px; padding:0 16px; border-bottom:1px solid #e8e7e3; }
+.repo-reader-tabs button { padding:12px 10px; border:0; border-bottom:2px solid transparent; background:transparent; color:#787774; font:inherit; font-size:12px; cursor:pointer; }
+.repo-reader-tabs button[data-active='true'] { color:#37352f; border-bottom-color:#37352f; font-weight:600; }
+.repo-reader-function-list { overflow:auto; flex:1; min-height:0; }
+.repo-reader-snapshot { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 16px; color:#787774; font-size:11px; overflow-wrap:anywhere; }
+.repo-reader-function { border-top:1px solid #eeede9; }
+.repo-reader-function summary { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px 12px; padding:12px 16px; cursor:pointer; }
+.repo-reader-function strong { grid-column:1; color:#37352f; font-size:12px; overflow-wrap:anywhere; }
+.repo-reader-function summary span { grid-column:1; color:#787774; font-size:11px; overflow-wrap:anywhere; }
+.repo-reader-function small { grid-column:2; grid-row:1; color:#89877f; font-size:10px; }
+.repo-reader-function pre,.repo-reader-json { margin:0; padding:16px; overflow:auto; font-size:11px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; background:#fafaf9; color:#37352f; }
+.repo-reader-json { flex:1; }
+.repo-reader-empty { margin:auto; padding:24px; color:#89877f; font-size:12px; }
+.repo-reader-notice { padding:8px 16px; background:#f7f6f3; color:#787774; font-size:11px; overflow-wrap:anywhere; }
+@media(max-width:760px) { .repo-reader-dialog.node-inspector[data-slot='dialog-content'] { width:calc(100vw - 24px); } .repo-reader-panels { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); } .repo-reader-settings.agent-card-form { max-height:230px; border-right:0; border-bottom:1px solid #e8e7e3; } }
 .workflow-context-attach { display:inline-flex; align-items:center; justify-content:center; gap:6px; flex:none; min-height:34px; padding:0 10px; border:1px solid #e3e3e0; border-radius:7px; background:#fafaf9; color:#37352f; font-size:12px; font-weight:500; cursor:pointer; }
 .workflow-context-attach:hover:not(:disabled) { background:#f1f0ed; }
 .workflow-context-attach:disabled { opacity:.5; cursor:default; }

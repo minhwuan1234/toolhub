@@ -5,6 +5,7 @@ import { getDatabase } from './database';
 import { readScannerFile } from './linkedin-scanner';
 import { getAgentCard } from './agent-cards';
 import { isToolImported } from './imported-tools';
+import { readAgentRepository } from './repository-reader';
 
 export type DesignerGraphNode = ContextTagSource & {
   id: string;
@@ -17,12 +18,14 @@ export type DesignerGraphNode = ContextTagSource & {
   testDocument: string;
   useTestDocument: boolean;
   instructionPrompt: string;
+  repoToolId?: string;
 };
 export type DesignerGraphDocument = {
   nodes: DesignerGraphNode[];
   links: ContextInputLink[];
   screenContextsSeeded: boolean;
   screenContextVersion: number;
+  repoReaderSeeded?: boolean;
 };
 
 export function graphIdForAgent(agentId: string) {
@@ -47,16 +50,17 @@ export function validateDesignerGraph(value: unknown): DesignerGraphDocument {
   const graph = value as Record<string, unknown>;
   if (!Array.isArray(graph.nodes) || graph.nodes.length > 100 || !Array.isArray(graph.links) || graph.links.length > 300) throw new Error('Graph exceeds its node or link limit.');
   const nodes = graph.nodes as unknown[];
-  if (nodes.some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as DesignerGraphNode).id !== 'string' || !(item as DesignerGraphNode).id || (item as DesignerGraphNode).id.length > 100 || !['workflow', 'context', 'agent', 'tool-calling', 'human-approval', 'skill', 'agent-handoff'].includes((item as DesignerGraphNode).kind) || !Number.isFinite((item as DesignerGraphNode).x) || !Number.isFinite((item as DesignerGraphNode).y) || !Array.isArray((item as DesignerGraphNode).contextTags) || !Array.isArray((item as DesignerGraphNode).contextFiles) || (item as DesignerGraphNode).contextTags.length > 30 || (item as DesignerGraphNode).contextFiles.length > 20 || (item as DesignerGraphNode).contextFiles.some(file => typeof file.id !== 'string' || typeof file.name !== 'string' || typeof file.content !== 'string' || file.content.length > 200000 || file.repoPath !== undefined && (file.repository !== 'linkedin-scanner' || typeof file.repoPath !== 'string' || file.repoPath.length > 500 || !file.repoPath)))) throw new Error('Graph has an invalid node.');
+  if (nodes.some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as DesignerGraphNode).id !== 'string' || !(item as DesignerGraphNode).id || (item as DesignerGraphNode).id.length > 100 || !['workflow', 'context', 'agent', 'tool-calling', 'human-approval', 'skill', 'agent-handoff', 'repo-reader'].includes((item as DesignerGraphNode).kind) || !Number.isFinite((item as DesignerGraphNode).x) || !Number.isFinite((item as DesignerGraphNode).y) || !Array.isArray((item as DesignerGraphNode).contextTags) || !Array.isArray((item as DesignerGraphNode).contextFiles) || (item as DesignerGraphNode).contextTags.length > 30 || (item as DesignerGraphNode).contextFiles.length > 20 || (item as DesignerGraphNode).kind === 'repo-reader' && ((item as DesignerGraphNode).repoToolId !== undefined && (typeof (item as DesignerGraphNode).repoToolId !== 'string' || (item as DesignerGraphNode).repoToolId!.length > 100) || typeof (item as DesignerGraphNode).taskText !== 'string' || (item as DesignerGraphNode).taskText!.length > 500) || (item as DesignerGraphNode).contextFiles.some(file => typeof file.id !== 'string' || typeof file.name !== 'string' || typeof file.content !== 'string' || file.content.length > 200000 || file.repoPath !== undefined && (file.repository !== 'linkedin-scanner' || typeof file.repoPath !== 'string' || file.repoPath.length > 500 || !file.repoPath)))) throw new Error('Graph has an invalid node.');
   const ids = new Set(nodes.map(item => (item as DesignerGraphNode).id));
   if (ids.size !== nodes.length) throw new Error('Graph has duplicate node IDs.');
   const kinds = new Map(nodes.map(item => [(item as DesignerGraphNode).id, (item as DesignerGraphNode).kind]));
-  if ((graph.links as unknown[]).some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as ContextInputLink).source !== 'string' || typeof (item as ContextInputLink).target !== 'string' || (item as ContextInputLink).source === (item as ContextInputLink).target || !ids.has((item as ContextInputLink).source) || !ids.has((item as ContextInputLink).target) || !(kinds.get((item as ContextInputLink).source) === 'human-approval' ? ['input', 'approve', 'deny', 'loop'] : ['input']).includes((item as ContextInputLink).command) || (item as ContextInputLink).command === 'loop' && kinds.get((item as ContextInputLink).target) !== 'agent')) throw new Error('Graph has an invalid link.');
+  if ((graph.links as unknown[]).some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as ContextInputLink).source !== 'string' || typeof (item as ContextInputLink).target !== 'string' || (item as ContextInputLink).source === (item as ContextInputLink).target || !ids.has((item as ContextInputLink).source) || !ids.has((item as ContextInputLink).target) || kinds.get((item as ContextInputLink).target) === 'repo-reader' || !(kinds.get((item as ContextInputLink).source) === 'human-approval' ? ['input', 'approve', 'deny', 'loop'] : ['input']).includes((item as ContextInputLink).command) || (item as ContextInputLink).command === 'loop' && kinds.get((item as ContextInputLink).target) !== 'agent')) throw new Error('Graph has an invalid link.');
   return {
     nodes: nodes as DesignerGraphNode[],
     links: graph.links as ContextInputLink[],
     screenContextsSeeded: graph.screenContextsSeeded === true,
     screenContextVersion: graph.screenContextVersion === 2 ? 2 : 0,
+    ...(graph.repoReaderSeeded === true ? { repoReaderSeeded: true } : {}),
   };
 }
 
@@ -86,7 +90,36 @@ async function refreshLinkedContext(document: DesignerGraphDocument, agentId: st
 export async function getDesignerGraph(agentId = 'designer'): Promise<{ document: DesignerGraphDocument | null; revision: number }> {
   const { rows } = await getDatabase().query<{ document: DesignerGraphDocument; revision: string }>('SELECT document, revision FROM designer_graphs WHERE id=$1', [graphIdForAgent(agentId)]);
   const row = rows[0];
-  return row ? { document: validateDesignerGraph(row.document), revision: Number(row.revision) } : { document: null, revision: 0 };
+  const document = row ? validateDesignerGraph(row.document) : null;
+  if (!document?.repoReaderSeeded) {
+    const card = await getAgentCard(agentId);
+    if (card && /\bupgrading\b/i.test(card.name)) {
+      const seeded = seedRepositoryReader(document, agentId, card.toolIds);
+      try {
+        const revision = await saveDesignerGraph(seeded, Number(row?.revision) || 0, agentId);
+        return { document: seeded, revision };
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('another session')) throw error;
+        const current = await getDatabase().query<{ document: DesignerGraphDocument; revision: string }>('SELECT document, revision FROM designer_graphs WHERE id=$1', [graphIdForAgent(agentId)]);
+        if (current.rows[0]) return { document: validateDesignerGraph(current.rows[0].document), revision: Number(current.rows[0].revision) };
+        throw error;
+      }
+    }
+  }
+  return { document, revision: Number(row?.revision) || 0 };
+}
+
+export function seedRepositoryReader(document: DesignerGraphDocument | null, agentId: string, toolIds: string[]): DesignerGraphDocument {
+  const graph = document || { nodes: [], links: [], screenContextsSeeded: false, screenContextVersion: 0 };
+  if (graph.repoReaderSeeded) return graph;
+  const node: DesignerGraphNode & { icon: string } = {
+    id: `repo-reader:${agentId}`, number: Math.max(0, ...graph.nodes.map(node => node.number || 0)) + 1,
+    kind: 'repo-reader', name: 'Read Repository', icon: 'code', x: graph.nodes.length ? Math.max(...graph.nodes.map(node => node.x)) + 220 : 180, y: 180,
+    active: true, contextText: '', contextFiles: [], contextTags: [], testDocument: '', useTestDocument: false, instructionPrompt: '', taskText: '',
+    repoToolId: toolIds.length === 1 ? toolIds[0] : '',
+  };
+  if (graph.nodes.length >= 100) throw new Error('Remove a node before adding Read Repository.');
+  return { ...graph, repoReaderSeeded: true, nodes: [...graph.nodes, node] };
 }
 
 export async function saveDesignerGraph(value: unknown, expectedRevision: number, agentId = 'designer'): Promise<number> {
@@ -292,7 +325,7 @@ export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string
       for (const link of incoming) previous.push({ node: nodeById.get(link.source), output: await visit(link.source) });
       let output = '';
       if (node.kind === 'agent') {
-        const modelContext = previous.filter(item => item.node?.kind === 'agent' || item.node?.kind === 'human-approval' || item.node?.kind === 'agent-handoff' && item.node.handoffMode === 'send').map(item => `${item.node!.name}:\n${item.output}`).join('\n\n');
+        const modelContext = previous.filter(item => item.node?.kind === 'agent' || item.node?.kind === 'human-approval' || item.node?.kind === 'repo-reader' || item.node?.kind === 'agent-handoff' && item.node.handoffMode === 'send').map(item => `${item.node!.name}:\n${item.output}`).join('\n\n');
         const run = await runStoredGraphAgent(id, '', modelContext, liveHandoffs, agentId);
         output = run.result.content;
       } else if (node.kind === 'human-approval') {
@@ -300,6 +333,8 @@ export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string
         if (approval?.status !== 'pending') throw new Error(`${node.name} has no pending output. Connect an AI Agent and run again.`);
         output = approval.output;
         waitingForApproval = true;
+      } else if (node.kind === 'repo-reader') {
+        output = JSON.stringify(await readAgentRepository(agentId, node.repoToolId || '', node.taskText || ''));
       } else if (node.kind === 'context') {
         output = node.contextText || '';
       } else if (node.kind === 'workflow') {

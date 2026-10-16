@@ -55,7 +55,7 @@ void test('each saved Agent Card has an isolated graph while UI/UX keeps its exi
   const globalDatabase = globalThis as typeof globalThis & { toolhubPool?: Pool };
   const previous = { pool: globalDatabase.toolhubPool, url: process.env.DATABASE_URL };
   const ids: string[] = [];
-  globalDatabase.toolhubPool = { query: async (_sql: string, values: unknown[]) => { ids.push(String(values[0])); return { rows: _sql.startsWith('INSERT') ? [{ revision: '1' }] : [] }; } } as unknown as Pool;
+  globalDatabase.toolhubPool = { query: async (_sql: string, values: unknown[]) => { if (_sql.includes('designer_graphs')) ids.push(String(values[0])); return { rows: _sql.startsWith('INSERT') ? [{ revision: '1' }] : [] }; } } as unknown as Pool;
   process.env.DATABASE_URL = 'mock-only';
   try {
     assert.equal(graphIdForAgent('designer'), 'uiux');

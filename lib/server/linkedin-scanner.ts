@@ -1,6 +1,30 @@
 const repository = 'minhwuan1234/linkedin-daily-scanner';
 const githubApi = `https://api.github.com/repos/${repository}`;
 
+export async function scannerRepositoryArchive(): Promise<{ repository: string; commit: string; bytes: Uint8Array }> {
+  const headers = { Accept: 'application/vnd.github+json', Authorization: `Bearer ${credential('LINKEDIN_SCANNER_PAT')}`, 'X-GitHub-Api-Version': '2022-11-28' };
+  const response = await fetch(`${githubApi}/commits?per_page=1`, { headers, signal: AbortSignal.timeout(15000) });
+  if (!response.ok) throw new Error(`GitHub repository discovery failed (${response.status}).`);
+  const commits = await response.json() as Array<{ sha?: string }>;
+  const commit = commits[0]?.sha;
+  if (!commit || !/^[a-f0-9]{40}$/.test(commit)) throw new Error('GitHub returned no repository commit.');
+  const archive = await fetch(`${githubApi}/zipball/${commit}`, { headers, signal: AbortSignal.timeout(60000) });
+  if (!archive.ok || !archive.body) throw new Error(`GitHub repository download failed (${archive.status}).`);
+  const chunks: Uint8Array[] = [];
+  const reader = archive.body.getReader();
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > 25_000_000) throw new Error('Repository archive exceeds the 25 MB scan limit.');
+      chunks.push(value);
+    }
+  } finally { await reader.cancel(); }
+  return { repository, commit, bytes: Buffer.concat(chunks) };
+}
+
 function required(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is not configured on the Toolhub backend.`);
