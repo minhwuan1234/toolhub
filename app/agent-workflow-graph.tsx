@@ -16,6 +16,7 @@ import { initialUiScreenContextHashes, uiScreenContextCatalog, uiScreenContextHa
 import { graphPreviewDocument } from '@/lib/graph-preview';
 import { GraphRunOutputDialog, HumanApprovalNodeDialog } from './human-approval-dialog';
 import { RepositoryReaderDialog } from './repository-reader-dialog';
+import { GraphChat } from './graph-chat';
 
 type ContextFile = { id: string; name: string; content: string; repository?: 'linkedin-scanner'; repoPath?: string; sha?: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
@@ -191,6 +192,8 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
   const [repoReaderSeeded, setRepoReaderSeeded] = useState(false);
   const managedGraph = /\bupgrading\b/i.test(agentName) || repoReaderSeeded;
   const [editingRepo, setEditingRepo] = useState<string | null>(null);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatRunningNodeId, setChatRunningNodeId] = useState<string | null>(null);
   const [screenContextError, setScreenContextError] = useState('');
   const [screenContextRetry, setScreenContextRetry] = useState(0);
   const [graphError, setGraphError] = useState('');
@@ -480,7 +483,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
   }
 
   async function runGraphAgent(node: GraphNode) {
-    if (runningAgent || !node.active) return;
+    if (runningAgent || chatBusy || !node.active) return;
     const incomingAgents = routesForAgent(agentLinks, agentId).incoming;
     const received = agentOutputs.filter(output => incomingAgents.includes(output.agentId)).map(output => `## ${output.agentId} handoff\n${output.content}`).join('\n\n');
     const handoffData = Object.fromEntries(nodes.filter(item => item.kind === 'agent-handoff' && item.handoffMode === 'receive').map(item => [item.id, receiveHandoffContent(received, item.testDocument, item.useTestDocument).slice(0, 8000)]));
@@ -514,7 +517,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
   }
 
   async function playGraphNode(node: GraphNode) {
-    if (execution?.running) return;
+    if (execution?.running || chatBusy) return;
     if (node.kind === 'repo-reader') setEditingRepo(node.id);
     setExecution({ nodeId: node.id, nodeName: node.name, running: true, output: '', error: '' });
     try {
@@ -549,6 +552,19 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
     } catch (error) {
       setExecution({ nodeId: node.id, nodeName: node.name, running: false, output: '', error: error instanceof Error ? error.message : 'Unable to run this node.' });
     }
+  }
+
+  async function saveGraphBeforeChat() {
+    if (!graphServerReadyRef.current) throw new Error('The graph is still loading.');
+    const document = savedGraphDocument(nodes, links, screenContextsSeeded, screenContextVersion, repoReaderSeeded);
+    const serialized = JSON.stringify(document);
+    if (serialized === lastSavedGraphRef.current) return;
+    pendingGraphRef.current = { document, serialized };
+    for (let attempt = 0; attempt < 50 && lastSavedGraphRef.current !== serialized; attempt++) {
+      await flushGraphSave();
+      if (lastSavedGraphRef.current !== serialized) await new Promise(resolve => window.setTimeout(resolve, 100));
+    }
+    if (lastSavedGraphRef.current !== serialized) throw new Error('The graph could not be saved. Reload before sending this request.');
   }
 
   function updateContextText(nodeId: string, value: string) {
@@ -810,7 +826,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
           {draft && (() => { const source = nodes.find(node => node.id === draft.source); const target = draft.target ? nodes.find(node => node.id === draft.target) : null; return source ? <path className={`connection-preview${target ? ' is-ready' : ''}`} d={curve(outputPoint(source, draft.command), target ? { x: target.x, y: target.y + nodeWidth / 2 } : draft.point)}/> : null; })()}
         </svg>
         {nodes.map(node => <ContextMenu key={node.id}><ContextMenuTrigger className="workflow-graph-node-group" style={{ left: node.x, top: node.y, zIndex: 4 + node.number % 3 }}><button
-          type="button" className="canvas-node workflow-graph-node"
+          type="button" className="canvas-node workflow-graph-node" data-running={chatRunningNodeId === node.id} aria-busy={chatRunningNodeId === node.id}
           aria-label={managedGraph ? node.name : `${node.name}. ${node.active ? node.kind === 'agent-handoff' ? node.handoffMode === 'receive' ? 'Receive data' : 'Send handoff' : 'Active' : 'Inactive'}. Drag or use arrow keys to move. Press Delete to remove.`}
           onDoubleClick={() => { if (node.kind === 'context') { setFileError(''); setEditingNode(node.id); } else if (node.kind === 'workflow') setEditingWorkflow(node.id); else if (node.kind === 'agent') openAgentOutput(node); else if (node.kind === 'agent-handoff') setEditingHandoff(node.id); else if (node.kind === 'repo-reader') setEditingRepo(node.id); }}
           onClick={() => { if (node.kind === 'repo-reader') setEditingRepo(node.id); if (node.kind === 'human-approval' && !suppressApprovalClickRef.current) setInspectingApproval(node.id); suppressApprovalClickRef.current = false; }}
@@ -835,7 +851,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
           {node.kind !== 'repo-reader' && <button type="button" className={`node-port workflow-graph-port workflow-graph-port-input${draft && draft.source !== node.id ? ' can-connect' : ''}${draft?.target === node.id ? ' is-target' : ''}${links.some(link => link.target === node.id) ? ' is-connected' : ''}`} data-workflow-input={node.id} aria-label={`Input of ${node.name}`} title={managedGraph ? "Input" : "Input — drop a connection here"} onPointerDown={event => event.stopPropagation()} onClick={() => { if (draft) connect(draft.source, node.id, draft.command); }}/> }
           {(node.kind === 'human-approval' ? ['approve', 'deny'] as const : ['input'] as const).map(command => <button key={command} type="button" className={`node-port workflow-graph-port workflow-graph-port-output${node.kind === 'human-approval' ? ` is-${command}` : ''}${links.some(link => link.source === node.id && (link.command === command || command === 'deny' && link.command === 'loop')) ? ' is-connected' : ''}`} aria-label={`${command === 'input' ? 'Connect' : command === 'approve' ? 'Approve' : 'Deny'} from ${node.name}`} title={managedGraph ? command === 'input' ? 'Output' : command : `${command === 'input' ? 'Output' : command === 'approve' ? 'Approve' : 'Deny'} — drag to another node's input`} onPointerDown={event => startConnection(event, node, command)} onPointerMove={event => moveConnection(event, node.id)} onPointerUp={event => endConnection(event, node.id)} onPointerCancel={event => { event.stopPropagation(); portDragRef.current = null; setDraft(null); }} onLostPointerCapture={event => { event.stopPropagation(); if (portDragRef.current) { portDragRef.current = null; setDraft(null); } }} onClick={event => { if (managedGraph || event.detail === 0) { const point = outputPoint(node, command); setDraft({ source: node.id, command, point: { x: point.x + 66, y: point.y }, target: null }); } }}/>) }
         </ContextMenuTrigger><ContextMenuContent className="node-context-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
-          <ContextMenuItem disabled={!node.active || execution?.running} onClick={() => void playGraphNode(node)}><Play/>Play</ContextMenuItem>
+          <ContextMenuItem disabled={!node.active || execution?.running || chatBusy} onClick={() => void playGraphNode(node)}><Play/>Play</ContextMenuItem>
           {node.kind === 'repo-reader' && <ContextMenuItem onClick={() => setEditingRepo(node.id)}><FileText/>View functions</ContextMenuItem>}
           {node.kind === 'context' && <ContextMenuItem onClick={() => { setFileError(''); setEditingNode(node.id); }}><FileText/>Edit context</ContextMenuItem>}
           {node.kind === 'workflow' && <ContextMenuItem onClick={() => setEditingWorkflow(node.id)}><Workflow/>Edit task</ContextMenuItem>}
@@ -849,6 +865,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
           <ContextMenuItem variant="destructive" onClick={() => removeNode(node.id)}><Trash2/>Delete node<span className="node-delete-shortcut">⌫ / Del</span></ContextMenuItem>
         </ContextMenuContent></ContextMenu>)}
       </div>
+      {managedGraph && <GraphChat key={agentId} agentId={agentId} agentName={agentName} disabled={!loaded || Boolean(execution?.running) || runningAgent} onBeforeSend={saveGraphBeforeChat} onBusyChange={setChatBusy} onNodeStart={setChatRunningNodeId} onNodeResult={(id, output) => updateNode(id, { lastOutput: output })} onOpenNode={id => { if (nodes.some(node => node.id === id && node.kind === 'repo-reader')) setEditingRepo(id); }}/>}
     </div>
     {!managedGraph && <aside className="workflow-graph-sidebar node-picker" aria-label="Add graph node">
       <header><h2>Add node</h2></header>

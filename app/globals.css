@@ -955,6 +955,9 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .toolhub-workspace { position:relative; flex:1; min-width:0; min-height:0; }
 .agent-chat { position:absolute; z-index:20; left:50%; bottom:28px; transform:translateX(-50%); display:flex; flex-direction:column; gap:10px; width:min(720px,calc(100% - 80px)); pointer-events:none; }
 .agent-chat > * { pointer-events:auto; }
+.graph-chat-node-result { display:flex; align-items:center; gap:7px; margin:0 0 14px; padding:7px 10px; border:1px solid #e8e7e3; border-radius:7px; background:#fafaf9; color:#56544f; font:inherit; font-size:12px; cursor:pointer; }
+.graph-chat-node-result:hover { background:#f1f0ed; }
+.workflow-graph-node[data-running='true'] { border-color:#238452; box-shadow:0 0 0 3px #23845218; }
 .agent-chat-compose { display:flex; flex-direction:column; min-height:148px; padding:16px 18px 12px; border:1px solid #e6e6e6; border-radius:25px; background:#fff; box-shadow:0 10px 36px #00000014,0 1px 3px #00000008; }
 .agent-chat-compose:focus-within { border-color:#c7c7c7; }
 .agent-chat-input { display:block; flex:1; width:100%; min-height:72px; max-height:180px; resize:vertical; padding:0; border:0; outline:none; background:transparent; color:#252525; font:inherit; font-size:16px; line-height:1.5; }
