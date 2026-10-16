@@ -91,6 +91,9 @@ void test('plain-language chat routes to the in-graph reader and persists output
   assert.deepEqual(events.map(event => event.type), ['node_start', 'node_result', 'reply']);
   assert.equal(JSON.parse(f.outputs[0]).functions[0].name, 'accept_invitation');
   assert.equal(JSON.parse(f.outputs[0]).model_calls, 0);
+  assert.equal(JSON.parse(f.outputs[0]).query_source, 'model');
+  assert.equal(JSON.parse(f.outputs[0]).groups[0].root, 'main.py');
+  assert.equal(events[0].type === 'node_start' && events[0].query, 'accept invitation');
 });
 
 void test('model requesting an out-of-graph function cannot invoke it even if prompted to bypass scope', async () => {

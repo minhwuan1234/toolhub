@@ -11,6 +11,16 @@ function record(path: string, name: string, kind: string, content: string, start
 }
 
 export function extractFunctions({ path, content }: RepositorySource): { functions: RepositoryFunction[]; errors: string[] } {
+  if (/\.html?$/i.test(path)) {
+    const functions: RepositoryFunction[] = [], errors: string[] = [];
+    for (const match of content.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
+      const offset = match.index + match[0].indexOf('>') + 1;
+      const result = extractFunctions({ path: `${path}.js`, content: '\n'.repeat(content.slice(0, offset).split('\n').length - 1) + match[1] });
+      functions.push(...result.functions.map(fn => ({ ...fn, path })));
+      errors.push(...result.errors.map(error => error.replace(`${path}.js`, path)));
+    }
+    return { functions, errors };
+  }
   if (path.endsWith('.py')) return extractPythonFunctions(path, content);
   const source = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, /\.[jt]sx$/i.test(path) ? ts.ScriptKind.TSX : /\.[cm]?js$/i.test(path) ? ts.ScriptKind.JS : ts.ScriptKind.TS);
   const functions: RepositoryFunction[] = [];

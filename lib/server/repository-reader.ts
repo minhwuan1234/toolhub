@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import { Readable } from 'node:stream';
-import { excludedSource, extractFunctions, searchFunctions, supportedSource, type RepositoryFunction } from '../repository-functions';
+import { excludedSource, extractFunctions, searchFunctions, supportedSource, type RepositoryFunction, type RepositorySource } from '../repository-functions';
+import { groupRepositoryFlows } from '../repository-ui-flows';
 import { getAgentCard } from './agent-cards';
 import { listImportedTools } from './imported-tools';
 import { scannerRepositoryArchive } from './linkedin-scanner';
@@ -9,6 +10,14 @@ import { scannerRepositoryArchive } from './linkedin-scanner';
 const providers: Record<string, () => Promise<{ repository: string; commit: string; bytes: Uint8Array }>> = {
   'linkedin-scanner': scannerRepositoryArchive,
 };
+
+export function repositoryReplayQuery(output: string | undefined): { query: string; query_source: 'model' | 'exploration' } {
+  try {
+    const value = JSON.parse(output || '') as { query?: unknown; query_source?: unknown };
+    if (value.query_source === 'model' && typeof value.query === 'string' && value.query.length <= 500) return { query: value.query, query_source: 'model' };
+  } catch { /* Older manually entered search values are not model input. */ }
+  return { query: '', query_source: 'exploration' };
+}
 
 export async function repositoryToolsForAgent(agentId: string) {
   const [card, imported] = await Promise.all([getAgentCard(agentId), listImportedTools()]);
@@ -20,13 +29,15 @@ export async function analyzeRepositoryArchive(bytes: Uint8Array, query: string)
   const entries = Object.values(zip.files).filter(file => !file.dir).sort((a, b) => a.name.localeCompare(b.name));
   if (entries.length > 30000) throw new Error('Repository has too many files for one scan.');
   const functions: RepositoryFunction[] = [];
+  const sources: RepositorySource[] = [];
   const skipped: Array<{ path: string; reason: string }> = [];
   const errors: string[] = [];
   let scannedFiles = 0, ignoredFiles = 0, sourceBytes = 0;
   for (const entry of entries) {
     const path = entry.name.split('/').slice(1).join('/');
     if (!path || excludedSource.test(path)) { ignoredFiles++; continue; }
-    if (!supportedSource.test(path)) {
+    const asset = /\.(?:html?|css|sql)$/i.test(path);
+    if (!supportedSource.test(path) && !asset) {
       if (/\.(?:go|rs|java|rb|php|cs|c|cpp|vue|svelte)$/i.test(path)) skipped.push({ path, reason: 'Unsupported language' });
       else ignoredFiles++;
       continue;
@@ -46,25 +57,34 @@ export async function analyzeRepositoryArchive(bytes: Uint8Array, query: string)
     sourceBytes += size;
     const content = Buffer.concat(chunks).toString('utf8');
     if (content.includes('\0')) { skipped.push({ path, reason: 'Binary file' }); continue; }
-    const result = extractFunctions({ path, content });
+    sources.push({ path, content });
+    const result = supportedSource.test(path) || /\.html?$/i.test(path) ? extractFunctions({ path, content }) : { functions: [], errors: [] };
     functions.push(...result.functions);
     errors.push(...result.errors);
     scannedFiles++;
   }
   const ranked = searchFunctions(functions, query, functions.length);
+  const grouped = groupRepositoryFlows(sources, functions, query);
   const result = {
-    algorithm: 'Syntax parsing + weighted keyword search', model_calls: 0,
+    algorithm: 'UI entry traversal + static imports, API routes and database references', model_calls: 0,
     supported_languages: ['JavaScript', 'TypeScript', 'JSX', 'TSX', 'Python'],
     query, scanned_files: scannedFiles, ignored_files: ignoredFiles, total_functions: functions.length,
     matched_functions: ranked.length, returned_functions: Math.min(200, ranked.length),
     truncated: ranked.length > 200, coverage: skipped.length || errors.length ? 'partial' : 'complete',
     skipped_files: skipped.slice(0, 100), skipped_file_count: skipped.length,
     errors: errors.slice(0, 100), functions: ranked.slice(0, 200),
+    ...grouped, returned_groups: grouped.groups.length, groups_truncated: grouped.total_groups > grouped.groups.length,
   };
-  while (JSON.stringify(result).length > 175000 && result.functions.length) {
-    result.functions.pop(); result.truncated = true;
+  while (JSON.stringify(result).length > 175000) {
+    if (result.functions.length > 25) { result.functions.pop(); result.truncated = true; }
+    else if (result.groups.length > 1) { result.groups.pop(); result.groups_truncated = true; }
+    else if (result.groups[0]?.functions.length > 5) { result.groups[0].functions.pop(); result.groups[0].truncated = true; }
+    else if (result.functions.length) { result.functions.pop(); result.truncated = true; }
+    else if (result.groups.length) { result.groups.pop(); result.groups_truncated = true; }
+    else break;
   }
   result.returned_functions = result.functions.length;
+  result.returned_groups = result.groups.length;
   return result;
 }
 

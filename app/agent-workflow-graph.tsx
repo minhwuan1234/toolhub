@@ -195,6 +195,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
   const managedGraph = /\bupgrading\b/i.test(agentName) || repoReaderSeeded;
   const [editingRepo, setEditingRepo] = useState<string | null>(null);
   const [chatBusy, setChatBusy] = useState(false);
+  const [modelQueries, setModelQueries] = useState<Record<string, string>>({});
   const [chatRunningNodeId, setChatRunningNodeId] = useState<string | null>(null);
   const [screenContextError, setScreenContextError] = useState('');
   const [screenContextRetry, setScreenContextRetry] = useState(0);
@@ -925,7 +926,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
         <Button className="canvas-control" variant="outline" aria-label="Zoom out" title="Zoom out (−)" disabled={pan.zoom <= MIN_ZOOM} onClick={() => zoomGraph(-1)}><ZoomOut size={19}/></Button>
         <output className="canvas-zoom-value" aria-label="Zoom level">{Math.round(pan.zoom * 100)}%</output>
       </fieldset>}
-      {managedGraph && <GraphChat key={agentId} agentId={agentId} agentName={agentName} disabled={!loaded || Boolean(execution?.running) || runningAgent} onBeforeSend={saveGraphBeforeChat} onBusyChange={setChatBusy} onNodeStart={setChatRunningNodeId} onNodeResult={(id, output) => updateNode(id, { lastOutput: output })} onOpenNode={id => { if (nodes.some(node => node.id === id && node.kind === 'repo-reader')) setEditingRepo(id); }}/>}
+      {managedGraph && <GraphChat key={agentId} agentId={agentId} agentName={agentName} disabled={!loaded || Boolean(execution?.running) || runningAgent} onBeforeSend={saveGraphBeforeChat} onBusyChange={setChatBusy} onNodeStart={(id, query) => { setChatRunningNodeId(id); if (id && query !== undefined) setModelQueries(previous => ({ ...previous, [id]: query })); }} onNodeResult={(id, output) => updateNode(id, { lastOutput: output })} onOpenNode={id => { if (nodes.some(node => node.id === id && node.kind === 'repo-reader')) setEditingRepo(id); }}/>}
     </div>
     {!managedGraph && <aside className="workflow-graph-sidebar node-picker" aria-label="Add graph node">
       <header><h2>Add node</h2></header>
@@ -934,7 +935,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
     </div>
     {inspectingApproval && <HumanApprovalNodeDialog key={inspectingApproval} agentId={agentId} nodeId={inspectingApproval} nodeName={nodes.find(node => node.id === inspectingApproval)?.name || 'Human Approval'} upstreamNodeId={inspectedApprovalUpstream?.id} upstreamOutput={inspectedApprovalUpstream?.lastOutput} upstreamName={inspectedApprovalUpstream?.name} onClose={() => setInspectingApproval(null)}/>}
     {execution && nodes.find(node => node.id === execution.nodeId)?.kind !== 'repo-reader' && <GraphRunOutputDialog key={execution.nodeId} nodeName={execution.nodeName} output={execution.output} running={execution.running} error={execution.error} onClose={() => setExecution(null)}/>}
-    {editingRepo && (() => { const node = nodes.find(item => item.id === editingRepo); if (!node) return null; const run = execution?.nodeId === node.id ? execution : null; return <RepositoryReaderDialog agentId={agentId} name={node.name} toolId={node.repoToolId || ''} query={node.taskText} output={node.lastOutput} running={Boolean(run?.running)} error={run?.error || ''} onChange={value => updateNode(node.id, value)} onRun={() => { void playGraphNode(node); }} onClose={() => setEditingRepo(null)}/>; })()}
+    {editingRepo && (() => { const node = nodes.find(item => item.id === editingRepo); if (!node) return null; const run = execution?.nodeId === node.id ? execution : null; return <RepositoryReaderDialog agentId={agentId} name={node.name} toolId={node.repoToolId || ''} query={modelQueries[node.id] || ''} output={node.lastOutput} running={Boolean(run?.running) || chatRunningNodeId === node.id} error={run?.error || ''} onChange={value => updateNode(node.id, value)} onRun={() => { void playGraphNode(node); }} onClose={() => setEditingRepo(null)}/>; })()}
     <Dialog open={Boolean(renamingNode)} onOpenChange={open => { if (!open) setRenamingNode(null); }}><DialogContent className="workflow-rename-dialog"><DialogTitle>Rename node</DialogTitle><DialogDescription className="sr-only">Choose a name for this graph node.</DialogDescription><form onSubmit={event => { event.preventDefault(); if (renamingNode && nameDraft.trim()) updateNode(renamingNode, { name: nameDraft.trim().slice(0, 60) }); setRenamingNode(null); }}><label htmlFor="workflow-node-name">Node name</label><input id="workflow-node-name" maxLength={60} value={nameDraft} onChange={event => setNameDraft(event.target.value)}/><button type="submit" disabled={!nameDraft.trim()}>Save</button></form></DialogContent></Dialog>
     <Dialog open={Boolean(editingWorkflow)} onOpenChange={open => { if (!open) { setEditingWorkflow(null); setTaskTagPicker(null); } }}>
       <DialogContent className="workflow-task-dialog">

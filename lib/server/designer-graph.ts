@@ -5,7 +5,7 @@ import { getDatabase } from './database';
 import { readScannerFile } from './linkedin-scanner';
 import { getAgentCard } from './agent-cards';
 import { isToolImported } from './imported-tools';
-import { readAgentRepository } from './repository-reader';
+import { readAgentRepository, repositoryReplayQuery } from './repository-reader';
 
 export type DesignerGraphNode = ContextTagSource & {
   id: string;
@@ -351,7 +351,9 @@ export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string
         output = approval.output;
         waitingForApproval = true;
       } else if (node.kind === 'repo-reader') {
-        output = JSON.stringify(await readAgentRepository(agentId, node.repoToolId || '', node.taskText || ''));
+        const previous = await getDatabase().query<{ content: string }>('SELECT content FROM designer_graph_outputs WHERE node_id=$1', [node.id]);
+        const replay = repositoryReplayQuery(previous.rows[0]?.content);
+        output = JSON.stringify({ ...await readAgentRepository(agentId, node.repoToolId || '', replay.query), query_source: replay.query_source });
       } else if (node.kind === 'context') {
         output = node.contextText || '';
       } else if (node.kind === 'workflow') {

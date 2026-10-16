@@ -9,7 +9,7 @@ type Message = { id: string; kind: 'user' | 'agent' | 'error' | 'action'; text: 
 export function GraphChat({ agentId, agentName, disabled, onBeforeSend, onBusyChange, onNodeStart, onNodeResult, onOpenNode }: {
   agentId: string; agentName: string; disabled: boolean;
   onBeforeSend: () => Promise<void>; onBusyChange: (busy: boolean) => void;
-  onNodeStart: (id: string | null) => void; onNodeResult: (id: string, output: string) => void; onOpenNode: (id: string) => void;
+  onNodeStart: (id: string | null, query?: string) => void; onNodeResult: (id: string, output: string) => void; onOpenNode: (id: string) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -68,7 +68,7 @@ export function GraphChat({ agentId, agentName, disabled, onBeforeSend, onBusyCh
         for (const line of lines) {
           if (!line.trim()) continue;
           const item = JSON.parse(line) as GraphChatEvent;
-          if (item.type === 'node_start') { setActiveNode(item.name); onNodeStart(item.nodeId); }
+          if (item.type === 'node_start') { setActiveNode(item.name); onNodeStart(item.nodeId, item.query); }
           if (item.type === 'node_result') {
             onNodeResult(item.nodeId, item.output); setActiveNode(''); onNodeStart(null);
             setMessages(current => [...current, { id: crypto.randomUUID(), kind: 'action', text: item.name, nodeId: item.nodeId }]);
