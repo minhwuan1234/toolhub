@@ -15,7 +15,7 @@ function graph() {
       { ...base, id: 'approval', number: 4, name: 'Approval', kind: 'human-approval' },
     ],
     links: [{ source: 'source', target: 'context', command: 'input' }, { source: 'context', target: 'reader', command: 'input' }, { source: 'context', target: 'approval', command: 'input' }],
-    screenContextsSeeded: false, screenContextVersion: 0, repoReaderSeeded: true,
+    screenContextsSeeded: false, screenContextVersion: 0, repoReaderSeeded: true, thinkSeeded: true,
   });
 }
 

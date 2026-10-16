@@ -5,7 +5,7 @@ import type { Pool } from 'pg';
 import { extractFunctions, searchFunctions } from '../lib/repository-functions';
 import { analyzeRepositoryArchive, readAgentRepository } from '../lib/server/repository-reader';
 import { scannerRepositoryArchive } from '../lib/server/linkedin-scanner';
-import { getDesignerGraph, seedRepositoryReader, validateDesignerGraph, type DesignerGraphDocument } from '../lib/server/designer-graph';
+import { getDesignerGraph, seedRepositoryReader, seedThinkNode, validateDesignerGraph, type DesignerGraphDocument } from '../lib/server/designer-graph';
 
 void test('TypeScript parser finds declarations, components, nested callbacks and methods without matching comments', () => {
   const source = { path: 'src/connect.tsx', content: `// function fake() {}
@@ -174,7 +174,20 @@ void test('loading the Upgrading Agent graph creates and persists its node exact
   const first = await getDesignerGraph('developer');
   assert.equal(first.document?.nodes[0].name, 'Read Repository');
   const second = await getDesignerGraph('developer');
-  assert.equal(second.document?.nodes.length, 1);
+  assert.equal(second.document?.nodes.length, 2);
+  assert.equal(second.document?.nodes[1].kind, 'think');
+  assert.equal(second.document?.thinkSeeded, true);
   assert.equal(writes, 1);
   assert.equal(validateDesignerGraph({ ...second.document, nodes: [...second.document!.nodes, { ...second.document!.nodes[0], id: 'source', kind: 'agent' }], links: [{ source: 'source', target: second.document!.nodes[0].id, command: 'input' }] }).linkMode, 'visual');
+});
+
+void test('Think seeds once into an existing Upgrading graph without changing visual links', () => {
+  const graph = seedRepositoryReader(null, 'developer', ['linkedin-scanner']);
+  const seeded = seedThinkNode(graph, 'developer');
+  assert.equal(seeded.nodes[1].kind, 'think');
+  assert.equal(seeded.nodes[1].x, graph.nodes[0].x + 220);
+  assert.deepEqual(seeded.links, graph.links);
+  assert.equal(validateDesignerGraph(seeded).thinkSeeded, true);
+  assert.deepEqual(seedThinkNode(seeded, 'developer'), seeded);
+  assert.equal(seedThinkNode({ ...seeded, nodes: [seeded.nodes[0]] }, 'developer').nodes.length, 1);
 });

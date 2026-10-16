@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type SyntheticEvent } from 'react';
-import { ArrowUp, Workflow } from 'lucide-react';
+import { ArrowUp, Workflow, MessageSquare, ChevronDown } from 'lucide-react';
 import type { GraphChatEvent } from '@/lib/server/graph-chat';
 
 type Message = { id: string; kind: 'user' | 'agent' | 'error' | 'action'; text: string; nodeId?: string };
@@ -11,6 +11,7 @@ export function GraphChat({ agentId, agentName, disabled, onBeforeSend, onBusyCh
   onBeforeSend: () => Promise<void>; onBusyChange: (busy: boolean) => void;
   onNodeStart: (id: string | null, query?: string) => void; onNodeResult: (id: string, output: string) => void; onOpenNode: (id: string) => void;
 }) {
+  const [answersVisible, setAnswersVisible] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [configured, setConfigured] = useState(false);
@@ -90,14 +91,14 @@ export function GraphChat({ agentId, agentName, disabled, onBeforeSend, onBusyCh
   }
 
   return <section className="agent-chat graph-local-chat" aria-label={`${agentName} graph chat`}>
-    {(messages.length > 0 || running) && <div className="agent-chat-messages" role="log" aria-live="polite" aria-relevant="additions text">
+    {answersVisible && (messages.length > 0 || running) && <div className="agent-chat-messages" role="log" aria-live="polite" aria-relevant="additions text" id="graph-chat-answers">
       {messages.map(message => message.kind === 'action' ? <button type="button" key={message.id} className="graph-chat-node-result" onClick={() => { if (message.nodeId) onOpenNode(message.nodeId); }}><Workflow size={15}/>{message.text}</button> : <article key={message.id} className={`agent-message agent-message-${message.kind}`}><div className="agent-message-author">{message.kind === 'user' ? 'You' : message.kind === 'error' ? 'System' : agentName}</div><div className="agent-message-text">{message.text}</div></article>)}
       {running && <output className="agent-chat-working"><span className="agent-chat-pulse"/>{activeNode || agentName} is working…</output>}
       <div ref={end}/>
     </div>}
     <form className="agent-chat-compose" onSubmit={send}>
       <textarea className="agent-chat-input" aria-label="Message to this graph" placeholder={`Ask ${agentName}…`} value={input} maxLength={4000} rows={2} disabled={running || disabled || !loaded} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }}/>
-      <div className="agent-chat-footer"><div className="agent-chat-tools"><span className="agent-target-trigger"><Workflow size={17}/><span>Graph</span></span><span className="agent-chat-status" role={setupError ? 'alert' : undefined}>{setupError || (loaded && !configured ? 'Model setup needed' : activeNode)}</span></div><button className="agent-chat-send" type="submit" aria-label="Send message" title="Send message" disabled={running || disabled || !configured || input.trim().length < 3}><ArrowUp size={20}/></button></div>
+      <div className="agent-chat-footer"><div className="agent-chat-tools"><span className="agent-target-trigger"><Workflow size={17}/><span>Graph</span></span><button type="button" className="agent-target-trigger graph-chat-toggle" aria-label={answersVisible ? 'Hide replies' : 'Show replies'} title={answersVisible ? 'Hide replies' : 'Show replies'} aria-expanded={answersVisible} aria-controls="graph-chat-answers" onClick={() => setAnswersVisible(value => !value)}>{answersVisible ? <ChevronDown size={17}/> : <MessageSquare size={17}/>}</button><span className="agent-chat-status" role={setupError ? 'alert' : undefined}>{setupError || (loaded && !configured ? 'Model setup needed' : activeNode)}</span></div><button className="agent-chat-send" type="submit" aria-label="Send message" title="Send message" disabled={running || disabled || !configured || input.trim().length < 3}><ArrowUp size={20}/></button></div>
     </form>
   </section>;
 }

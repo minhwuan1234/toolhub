@@ -5,7 +5,8 @@ import { getDatabase } from './database';
 import { readScannerFile } from './linkedin-scanner';
 import { getAgentCard } from './agent-cards';
 import { isToolImported } from './imported-tools';
-import { readAgentRepository, repositoryReplayQuery } from './repository-reader';
+import { analyzeFeaturePlan } from './think';
+import { readAgentRepository, repositoryReplayQuery, repositoryToolsForAgent } from './repository-reader';
 
 export type DesignerGraphNode = ContextTagSource & {
   id: string;
@@ -26,6 +27,7 @@ export type DesignerGraphDocument = {
   screenContextsSeeded: boolean;
   screenContextVersion: number;
   repoReaderSeeded?: boolean;
+  thinkSeeded?: boolean;
   linkMode?: 'visual';
 };
 
@@ -55,7 +57,7 @@ export function validateDesignerGraph(value: unknown): DesignerGraphDocument {
   const graph = value as Record<string, unknown>;
   if (!Array.isArray(graph.nodes) || graph.nodes.length > 100 || !Array.isArray(graph.links) || graph.links.length > 300) throw new Error('Graph exceeds its node or link limit.');
   const nodes = graph.nodes as unknown[];
-  if (nodes.some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as DesignerGraphNode).id !== 'string' || !(item as DesignerGraphNode).id || (item as DesignerGraphNode).id.length > 100 || !['workflow', 'context', 'agent', 'tool-calling', 'human-approval', 'skill', 'agent-handoff', 'repo-reader'].includes((item as DesignerGraphNode).kind) || !Number.isFinite((item as DesignerGraphNode).x) || !Number.isFinite((item as DesignerGraphNode).y) || !Array.isArray((item as DesignerGraphNode).contextTags) || !Array.isArray((item as DesignerGraphNode).contextFiles) || (item as DesignerGraphNode).contextTags.length > 30 || (item as DesignerGraphNode).contextFiles.length > 20 || (item as DesignerGraphNode).kind === 'repo-reader' && ((item as DesignerGraphNode).repoToolId !== undefined && (typeof (item as DesignerGraphNode).repoToolId !== 'string' || (item as DesignerGraphNode).repoToolId!.length > 100) || typeof (item as DesignerGraphNode).taskText !== 'string' || (item as DesignerGraphNode).taskText!.length > 500) || (item as DesignerGraphNode).contextFiles.some(file => typeof file.id !== 'string' || typeof file.name !== 'string' || typeof file.content !== 'string' || file.content.length > 200000 || file.repoPath !== undefined && (file.repository !== 'linkedin-scanner' || typeof file.repoPath !== 'string' || file.repoPath.length > 500 || !file.repoPath)))) throw new Error('Graph has an invalid node.');
+  if (nodes.some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as DesignerGraphNode).id !== 'string' || !(item as DesignerGraphNode).id || (item as DesignerGraphNode).id.length > 100 || !['workflow', 'context', 'agent', 'tool-calling', 'human-approval', 'skill', 'agent-handoff', 'repo-reader', 'think'].includes((item as DesignerGraphNode).kind) || !Number.isFinite((item as DesignerGraphNode).x) || !Number.isFinite((item as DesignerGraphNode).y) || !Array.isArray((item as DesignerGraphNode).contextTags) || !Array.isArray((item as DesignerGraphNode).contextFiles) || (item as DesignerGraphNode).contextTags.length > 30 || (item as DesignerGraphNode).contextFiles.length > 20 || (item as DesignerGraphNode).kind === 'repo-reader' && ((item as DesignerGraphNode).repoToolId !== undefined && (typeof (item as DesignerGraphNode).repoToolId !== 'string' || (item as DesignerGraphNode).repoToolId!.length > 100) || typeof (item as DesignerGraphNode).taskText !== 'string' || (item as DesignerGraphNode).taskText!.length > 500) || (item as DesignerGraphNode).contextFiles.some(file => typeof file.id !== 'string' || typeof file.name !== 'string' || typeof file.content !== 'string' || file.content.length > 200000 || file.repoPath !== undefined && (file.repository !== 'linkedin-scanner' || typeof file.repoPath !== 'string' || file.repoPath.length > 500 || !file.repoPath)))) throw new Error('Graph has an invalid node.');
   const ids = new Set(nodes.map(item => (item as DesignerGraphNode).id));
   if (ids.size !== nodes.length) throw new Error('Graph has duplicate node IDs.');
   const kinds = new Map(nodes.map(item => [(item as DesignerGraphNode).id, (item as DesignerGraphNode).kind]));
@@ -73,6 +75,7 @@ export function validateDesignerGraph(value: unknown): DesignerGraphDocument {
     screenContextsSeeded: graph.screenContextsSeeded === true,
     screenContextVersion: graph.screenContextVersion === 2 ? 2 : 0,
     ...(graph.repoReaderSeeded === true ? { repoReaderSeeded: true } : {}),
+    ...(graph.thinkSeeded === true ? { thinkSeeded: true } : {}),
     ...(visual ? { linkMode: 'visual' as const } : {}),
   };
 }
@@ -104,10 +107,10 @@ export async function getDesignerGraph(agentId = 'designer'): Promise<{ document
   const { rows } = await getDatabase().query<{ document: DesignerGraphDocument; revision: string }>('SELECT document, revision FROM designer_graphs WHERE id=$1', [graphIdForAgent(agentId)]);
   const row = rows[0];
   const document = row ? validateDesignerGraph(row.document) : null;
-  if (!document?.repoReaderSeeded) {
+  if (!document?.repoReaderSeeded || !document?.thinkSeeded) {
     const card = await getAgentCard(agentId);
-    if (card && /\bupgrading\b/i.test(card.name)) {
-      const seeded = seedRepositoryReader(document, agentId, card.toolIds);
+    if (card && (document?.repoReaderSeeded || /\bupgrading\b/i.test(card.name))) {
+      const seeded = seedThinkNode(seedRepositoryReader(document, agentId, card.toolIds), agentId);
       try {
         const revision = await saveDesignerGraph(seeded, Number(row?.revision) || 0, agentId);
         return { document: seeded, revision };
@@ -133,6 +136,40 @@ export function seedRepositoryReader(document: DesignerGraphDocument | null, age
   };
   if (graph.nodes.length >= 100) throw new Error('Remove a node before adding Read Repository.');
   return { ...graph, repoReaderSeeded: true, linkMode: 'visual', nodes: [...graph.nodes, node] };
+}
+
+export function seedThinkNode(graph: DesignerGraphDocument, agentId: string): DesignerGraphDocument {
+  if (graph.thinkSeeded) return graph;
+  if (graph.nodes.some(node => node.kind === 'think')) return { ...graph, thinkSeeded: true };
+  if (graph.nodes.length >= 100) throw new Error('Remove a node before adding Think.');
+  const reader = graph.nodes.find(node => node.kind === 'repo-reader');
+  const node: DesignerGraphNode & { icon: string } = {
+    id: `think:${agentId}`, number: Math.max(0, ...graph.nodes.map(node => node.number || 0)) + 1,
+    kind: 'think', name: 'Think', icon: 'think', x: Math.max(0, ...graph.nodes.map(node => node.x)) + 220, y: reader?.y || 180,
+    active: true, contextText: '', contextFiles: [], contextTags: [], testDocument: '', useTestDocument: false, instructionPrompt: '', taskText: '',
+  };
+  return { ...graph, thinkSeeded: true, nodes: [...graph.nodes, node] };
+}
+
+export async function runStoredThinkNode(nodeId: string, agentId: string, sourceNodeId?: string, request?: string, signal?: AbortSignal) {
+  const { document } = await getDesignerGraph(agentId);
+  if (!document?.nodes.some(node => node.id === nodeId && node.kind === 'think' && node.active !== false)) throw new Error('Think node is not enabled in this graph.');
+  const readers = document.nodes.filter(node => node.kind === 'repo-reader' && node.active !== false && (!sourceNodeId || node.id === sourceNodeId));
+  const outputs = await getDesignerGraphOutputs(agentId);
+  const candidates = readers.filter(node => outputs[node.id]);
+  if (candidates.length !== 1) throw new Error(candidates.length ? 'Select which Read Repository output Think should use.' : 'Run Read Repository from the graph chat before Think.');
+  const reader = candidates[0];
+  const scan = JSON.parse(outputs[reader.id]) as Record<string, unknown>;
+  const allowed = await repositoryToolsForAgent(agentId);
+  if (typeof scan.tool_id !== 'string' || !allowed.some(tool => tool.id === scan.tool_id) || reader.repoToolId && reader.repoToolId !== scan.tool_id) throw new Error('Repository access is not enabled for this agent.');
+  const originalRequest = request || (typeof scan.user_request === 'string' ? scan.user_request : '');
+  const result = await analyzeFeaturePlan(originalRequest, reader.id, scan, signal);
+  const fresh = await getDesignerGraph(agentId);
+  const freshTools = await repositoryToolsForAgent(agentId);
+  if (!fresh.document?.nodes.some(node => node.id === nodeId && node.kind === 'think' && node.active !== false) || !fresh.document.nodes.some(node => node.id === reader.id && node.kind === 'repo-reader' && node.active !== false && (!node.repoToolId || node.repoToolId === scan.tool_id)) || !freshTools.some(tool => tool.id === scan.tool_id)) throw new Error('Graph access changed during Think.');
+  const output = JSON.stringify(result);
+  await saveDesignerGraphOutput(nodeId, output, agentId);
+  return result;
 }
 
 export async function saveDesignerGraph(value: unknown, expectedRevision: number, agentId = 'designer'): Promise<number> {
@@ -353,7 +390,11 @@ export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string
       } else if (node.kind === 'repo-reader') {
         const previous = await getDatabase().query<{ content: string }>('SELECT content FROM designer_graph_outputs WHERE node_id=$1', [node.id]);
         const replay = repositoryReplayQuery(previous.rows[0]?.content);
-        output = JSON.stringify({ ...await readAgentRepository(agentId, node.repoToolId || '', replay.query), query_source: replay.query_source });
+        let userRequest = '';
+        try { const saved = JSON.parse(previous.rows[0]?.content || '{}') as { user_request?: unknown }; if (typeof saved.user_request === 'string') userRequest = saved.user_request; } catch { /* No original request on older scans. */ }
+        output = JSON.stringify({ ...await readAgentRepository(agentId, node.repoToolId || '', replay.query), query_source: replay.query_source, user_request: userRequest });
+      } else if (node.kind === 'think') {
+        output = JSON.stringify(await runStoredThinkNode(node.id, agentId));
       } else if (node.kind === 'context') {
         output = node.contextText || '';
       } else if (node.kind === 'workflow') {
@@ -364,7 +405,7 @@ export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string
       } else if (node.kind === 'agent-handoff') {
         output = node.handoffMode === 'receive' ? liveHandoffs[id] || (node.useTestDocument ? node.testDocument || '' : '') : previous.map(item => item.output).filter(Boolean).join('\n\n');
       }
-      if (id === nodeId && node.kind !== 'agent' && node.kind !== 'human-approval' && output) await saveDesignerGraphOutput(id, output, agentId);
+      if (id === nodeId && node.kind !== 'agent' && node.kind !== 'human-approval' && node.kind !== 'think' && output) await saveDesignerGraphOutput(id, output, agentId);
       completed.set(id, output);
       return output;
     } finally { visiting.delete(id); }

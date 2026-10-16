@@ -1,5 +1,5 @@
 'use client';
-import {Box,Database,Globe,FileText,MessageSquare,Workflow,X,Mail,Calendar,Users,Folder,Code,Zap,Server,Shield,ShoppingCart,Image,Video,ChartColumn,Bot,Wrench,CircleCheck,BookOpen,ArrowRightLeft} from 'lucide-react';
+import {Box,Database,Globe,FileText,MessageSquare,Workflow,X,Mail,Calendar,Users,Folder,Code,Zap,Server,Shield,ShoppingCart,Image,Video,ChartColumn,Bot,Wrench,CircleCheck,BookOpen,ArrowRightLeft,Brain} from 'lucide-react';
 import type { AgentId } from '@/lib/agent-team';
 import type { AgentCard } from '@/lib/agent-cards';
 export const nodeOptions=[
@@ -29,6 +29,7 @@ export const iconOptions=[
   {type:'human-approval',label:'Human Approval',icon:CircleCheck},
   {type:'skill',label:'Skill',icon:BookOpen},
   {type:'agent-handoff',label:'Agent Handoff',icon:ArrowRightLeft},
+  {type:'think',label:'Think',icon:Brain},
 ] as const;
 export type NodeKind=typeof nodeOptions[number]['type'];
 export type NodeIcon=typeof iconOptions[number]['type'];
