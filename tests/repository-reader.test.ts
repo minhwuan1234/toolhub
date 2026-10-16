@@ -176,5 +176,5 @@ void test('loading the Upgrading Agent graph creates and persists its node exact
   const second = await getDesignerGraph('developer');
   assert.equal(second.document?.nodes.length, 1);
   assert.equal(writes, 1);
-  assert.throws(() => validateDesignerGraph({ ...second.document, nodes: [...second.document!.nodes, { ...second.document!.nodes[0], id: 'source', kind: 'agent' }], links: [{ source: 'source', target: second.document!.nodes[0].id, command: 'input' }] }), /invalid link/);
+  assert.equal(validateDesignerGraph({ ...second.document, nodes: [...second.document!.nodes, { ...second.document!.nodes[0], id: 'source', kind: 'agent' }], links: [{ source: 'source', target: second.document!.nodes[0].id, command: 'input' }] }).linkMode, 'visual');
 });

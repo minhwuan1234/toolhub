@@ -2,6 +2,9 @@ export type Viewport={x:number;y:number;zoom:number};
 export const MIN_ZOOM=0.25;
 export const MAX_ZOOM=2;
 export const DEFAULT_VIEWPORT:Viewport={x:0,y:0,zoom:1};
+export function canvasPoint(view:Viewport,point:{x:number;y:number}):{x:number;y:number} {
+  return {x:(point.x-view.x)/view.zoom,y:(point.y-view.y)/view.zoom};
+}
 export function zoomAt(view:Viewport,nextZoom:number,point:{x:number;y:number}):Viewport {
   const zoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,nextZoom));
   const ratio=zoom/view.zoom;

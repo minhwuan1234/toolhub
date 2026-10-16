@@ -3,7 +3,7 @@
 /* oxlint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex, jsx-a11y/prefer-tag-over-role */
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
-import { ArrowRightLeft, BookOpen, Bot, Check, ChevronDown, CircleCheck, FileText, Pencil, Play, Power, Shapes, Ticket, Trash2, Workflow, Wrench } from 'lucide-react';
+import { ArrowRightLeft, BookOpen, Bot, Check, ChevronDown, CircleCheck, FileText, Pencil, Play, Power, Shapes, Ticket, Trash2, Workflow, Wrench, Scan, ZoomIn, ZoomOut } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -17,6 +17,8 @@ import { graphPreviewDocument } from '@/lib/graph-preview';
 import { GraphRunOutputDialog, HumanApprovalNodeDialog } from './human-approval-dialog';
 import { RepositoryReaderDialog } from './repository-reader-dialog';
 import { GraphChat } from './graph-chat';
+import { Button } from '@/components/ui/button';
+import { DEFAULT_VIEWPORT, MIN_ZOOM, MAX_ZOOM, canvasPoint, fitViewport, zoomAt } from '@/lib/canvas-viewport';
 
 type ContextFile = { id: string; name: string; content: string; repository?: 'linkedin-scanner'; repoPath?: string; sha?: string };
 type ContextTag = { id: string; name: string; kind: 'text' | 'file'; text: string; fileId: string | null };
@@ -166,7 +168,7 @@ function normalizeGraphLink(link: GraphLink, nodes: GraphNode[]): GraphLink {
 }
 
 function savedGraphDocument(nodes: GraphNode[], links: GraphLink[], screenContextsSeeded: boolean, screenContextVersion: number, repoReaderSeeded = false) {
-  return { nodes: nodes.map(({ lastOutput: _lastOutput, ...node }) => node), links, screenContextsSeeded, screenContextVersion, ...(repoReaderSeeded ? { repoReaderSeeded: true } : {}) };
+  return { nodes: nodes.map(({ lastOutput: _lastOutput, ...node }) => node), links, screenContextsSeeded, screenContextVersion, ...(repoReaderSeeded ? { repoReaderSeeded: true, linkMode: 'visual' as const } : {}) };
 }
 
 function outputPoint(source: GraphNode, command: GraphLink['command']) {
@@ -199,7 +201,9 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
   const [graphError, setGraphError] = useState('');
   const [selectedLink, setSelectedLink] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ source: string; command: GraphLink['command']; point: { x: number; y: number }; target: string | null } | null>(null);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [pan, setView] = useState(DEFAULT_VIEWPORT);
+  const setPan = useCallback((point: { x: number; y: number }) => setView(current => ({ ...current, ...point })), []);
+  const runtimeLinks = managedGraph ? [] : links;
   const [panning, setPanning] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [editingNode, setEditingNode] = useState<string | null>(null);
@@ -247,7 +251,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
   const panRef = useRef<{ pointerId: number; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const dragRef = useRef<{ id: string; pointerX: number; pointerY: number; x: number; y: number } | null>(null);
   const suppressApprovalClickRef = useRef(false);
-  const portDragRef = useRef<{ source: string; command: GraphLink['command']; pointerId: number } | null>(null);
+  const portDragRef = useRef<{ source: string; command: GraphLink['command']; pointerId: number; x: number; y: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -257,18 +261,19 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
       let seeded = false;
       let version = 0;
       let repoSeeded = false;
+      let restoredViewport = false;
       if (cancelled) return;
       try {
         const saved = localStorage.getItem(graphStorageKey) || (agentId === 'designer' ? localStorage.getItem(previousStorageKey) : null);
         if (saved) {
-          const graph = JSON.parse(saved) as { nodes?: unknown; links?: unknown; pan?: { x?: unknown; y?: unknown }; screenContextsSeeded?: boolean; screenContextVersion?: number; repoReaderSeeded?: boolean };
+          const graph = JSON.parse(saved) as { nodes?: unknown; links?: unknown; pan?: { x?: unknown; y?: unknown; zoom?: unknown }; screenContextsSeeded?: boolean; screenContextVersion?: number; repoReaderSeeded?: boolean };
           savedNodes = Array.isArray(graph.nodes) ? graph.nodes.filter(isGraphNode).slice(0, 100).map(normalizeNode) : [];
           const nodeIds = new Set(savedNodes.map(node => node.id));
           savedLinks = Array.isArray(graph.links) ? graph.links.filter(isGraphLink).filter(link => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, 300).map(link => normalizeGraphLink(link, savedNodes)) : [];
           seeded = graph.screenContextsSeeded === true;
           repoSeeded = graph.repoReaderSeeded === true;
           version = graph.screenContextVersion === 2 ? 2 : seeded ? 1 : 0;
-          if (Number.isFinite(graph.pan?.x) && Number.isFinite(graph.pan?.y)) setPan({ x: graph.pan!.x as number, y: graph.pan!.y as number });
+          if (Number.isFinite(graph.pan?.x) && Number.isFinite(graph.pan?.y)) { setView({ x: graph.pan!.x as number, y: graph.pan!.y as number, zoom: typeof graph.pan?.zoom === 'number' && Number.isFinite(graph.pan.zoom) ? Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, graph.pan.zoom)) : 1 }); restoredViewport = true; }
         } else {
           const previous = JSON.parse(agentId === 'designer' ? localStorage.getItem(legacyStorageKey) || '[]' : '[]') as unknown;
           if (Array.isArray(previous)) savedNodes = previous.filter(isGraphNode).slice(0, 100).map(normalizeNode);
@@ -296,7 +301,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
         if (cancelled) return;
         setGraphError('Graph is available locally, but server sync is unavailable.');
       }
-      if (repoSeeded) {
+      if (repoSeeded && !restoredViewport) {
         const reader = savedNodes.find(node => node.kind === 'repo-reader');
         const canvas = canvasRef.current;
         if (reader && canvas) setPan({ x: canvas.clientWidth / 2 - reader.x - nodeWidth / 2, y: canvas.clientHeight / 2 - reader.y - nodeHeight / 2 });
@@ -310,9 +315,24 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
     }
     void loadGraph();
     return () => { cancelled = true; };
-  }, [agentId, graphStorageKey]);
+  }, [agentId, graphStorageKey, setPan]);
 
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !managedGraph) return;
+    const wheel = (event: WheelEvent) => {
+      if (event.target instanceof Element && event.target.closest('.agent-chat,.canvas-toolbar')) return;
+      event.preventDefault();
+      const box = canvas.getBoundingClientRect();
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? box.height : 1;
+      if (event.ctrlKey || event.metaKey) setView(current => zoomAt(current, current.zoom * Math.exp(-event.deltaY * unit * .008), { x: event.clientX - box.left, y: event.clientY - box.top }));
+      else setView(current => ({ ...current, x: current.x - event.deltaX * unit, y: current.y - event.deltaY * unit }));
+    };
+    canvas.addEventListener('wheel', wheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', wheel);
+  }, [managedGraph]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -417,7 +437,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
     }
     void addScreenContexts();
     return () => { cancelled = true; };
-  }, [loaded, screenContextsSeeded, screenContextVersion, screenContextRetry, agentId]);
+  }, [loaded, screenContextsSeeded, screenContextVersion, screenContextRetry, agentId, setPan]);
 
   useEffect(() => {
     const sync = () => { setAgentLinks(readAgentLinks()); setAgentOutputs(readAgentOutputs()); };
@@ -463,7 +483,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
 
   function connect(source: string, target: string, command: GraphLink['command'] = 'input') {
     if (source !== target && nodes.some(node => node.id === source) && nodes.some(node => node.id === target)) {
-      const branch = nodes.find(node => node.id === source)?.kind === 'human-approval' ? command === 'deny' && nodes.find(node => node.id === target)?.kind === 'agent' ? 'loop' : command === 'deny' ? 'deny' : 'approve' : 'input';
+      const branch = !managedGraph && nodes.find(node => node.id === source)?.kind === 'human-approval' ? command === 'deny' && nodes.find(node => node.id === target)?.kind === 'agent' ? 'loop' : command === 'deny' ? 'deny' : 'approve' : 'input';
       setLinks(current => current.some(link => link.source === source && link.target === target && link.command === branch) ? current : [...current, { id: crypto.randomUUID(), source, target, command: branch }]);
     }
     portDragRef.current = null;
@@ -487,7 +507,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
     const incomingAgents = routesForAgent(agentLinks, agentId).incoming;
     const received = agentOutputs.filter(output => incomingAgents.includes(output.agentId)).map(output => `## ${output.agentId} handoff\n${output.content}`).join('\n\n');
     const handoffData = Object.fromEntries(nodes.filter(item => item.kind === 'agent-handoff' && item.handoffMode === 'receive').map(item => [item.id, receiveHandoffContent(received, item.testDocument, item.useTestDocument).slice(0, 8000)]));
-    const input = resolveGraphAgentInput(node.id, node.instructionPrompt, nodes, links, handoffData);
+    const input = resolveGraphAgentInput(node.id, node.instructionPrompt, nodes, runtimeLinks, handoffData);
     if (!input.ok) { setOutputError(input.error); return; }
     setRunningAgent(true);
     setOutputError('');
@@ -720,10 +740,10 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
 
   function startConnection(event: PointerEvent<HTMLButtonElement>, node: GraphNode, command: GraphLink['command']) {
     event.stopPropagation();
-    if (managedGraph || event.button !== 0 || !event.isPrimary) return;
+    if (event.button !== 0 || !event.isPrimary) return;
     event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
-    portDragRef.current = { source: node.id, command, pointerId: event.pointerId };
+    portDragRef.current = { source: node.id, command, pointerId: event.pointerId, x: event.clientX, y: event.clientY };
     setDraft({ source: node.id, command, point: outputPoint(node, command), target: null });
   }
 
@@ -732,7 +752,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
     if (portDragRef.current?.pointerId !== event.pointerId || portDragRef.current.source !== source) return;
     const box = canvasRef.current?.getBoundingClientRect();
     if (!box) return;
-    setDraft({ source, command: portDragRef.current.command, point: { x: event.clientX - box.left - pan.x, y: event.clientY - box.top - pan.y }, target: targetAt(event.clientX, event.clientY, source) });
+    setDraft({ source, command: portDragRef.current.command, point: canvasPoint(pan, { x: event.clientX - box.left, y: event.clientY - box.top }), target: targetAt(event.clientX, event.clientY, source) });
   }
 
   function endConnection(event: PointerEvent<HTMLButtonElement>, source: string) {
@@ -740,7 +760,12 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
     if (portDragRef.current?.pointerId !== event.pointerId) return;
     const target = targetAt(event.clientX, event.clientY, source);
     if (target) connect(source, target, portDragRef.current.command);
-    else { portDragRef.current = null; setDraft(null); }
+    else {
+      const clicked = Math.hypot(event.clientX - portDragRef.current.x, event.clientY - portDragRef.current.y) < 4;
+      portDragRef.current = null;
+      if (clicked) setDraft(current => current ? { ...current, point: { x: current.point.x + 66, y: current.point.y }, target: null } : null);
+      else setDraft(null);
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
@@ -759,14 +784,14 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
     const stage = stageRef.current;
     if (!drag || drag.id !== id || !stage) return;
     if (Math.hypot(event.clientX - drag.pointerX, event.clientY - drag.pointerY) > 4) suppressApprovalClickRef.current = true;
-    const x = Math.max(8, drag.x + event.clientX - drag.pointerX);
-    const y = Math.max(8, drag.y + event.clientY - drag.pointerY);
+    const x = Math.max(8, drag.x + (event.clientX - drag.pointerX) / pan.zoom);
+    const y = Math.max(8, drag.y + (event.clientY - drag.pointerY) / pan.zoom);
     setNodes(current => current.map(node => node.id === id ? { ...node, x, y } : node));
   }
 
   const stageHeight = Math.max(440, ...nodes.map(node => node.y + nodeHeight + 28));
   const stageWidth = Math.max(760, ...nodes.map(node => node.x + nodeWidth + 28));
-  const inspectedApprovalUpstream = inspectingApproval ? nodes.find(node => node.kind === 'agent' && node.lastOutput && links.some(link => link.target === inspectingApproval && link.source === node.id && link.command === 'input')) : null;
+  const inspectedApprovalUpstream = inspectingApproval ? nodes.find(node => node.kind === 'agent' && node.lastOutput && runtimeLinks.some(link => link.target === inspectingApproval && link.source === node.id && link.command === 'input')) : null;
   const handoffRoutes = routesForAgent(agentLinks, agentId);
   const agentLabel = (id: string) => ({ ba: 'BA Agent', designer: 'UI/UX Agent', developer: 'Developer Agent' })[id as 'ba' | 'designer' | 'developer'] || id;
 
@@ -776,6 +801,7 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
     event.currentTarget.setPointerCapture(event.pointerId);
     panRef.current = { pointerId: event.pointerId, pointerX: event.clientX, pointerY: event.clientY, x: pan.x, y: pan.y };
     setPanning(true);
+    setDraft(null);
     setSelectedLink(null);
   }
 
@@ -791,19 +817,47 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
     setPanning(false);
   }
 
+  function zoomGraph(direction: number) {
+    const box = canvasRef.current?.getBoundingClientRect();
+    if (!box) return;
+    setView(current => zoomAt(current, current.zoom * (direction > 0 ? 1.2 : 1 / 1.2), { x: box.width / 2, y: box.height / 2 }));
+  }
+
+  function fitGraph() {
+    const box = canvasRef.current?.getBoundingClientRect();
+    if (!box) return;
+    const left = Math.min(...nodes.map(node => node.x)), top = Math.min(...nodes.map(node => node.y));
+    const bounds = nodes.length ? { x: left - 20, y: top, width: Math.max(...nodes.map(node => node.x + nodeWidth)) - left + 40, height: Math.max(...nodes.map(node => node.y + nodeHeight)) - top } : null;
+    setView(fitViewport(bounds, { width: box.width, height: Math.max(120, box.height - 180) }));
+  }
+
   return <section className={`workflow-graph${managedGraph ? " is-managed" : ""}`} aria-label={`${agentName} workflow graph`}>
     <div className="workflow-graph-toolbar">
       <div><strong>{agentName} workflow</strong></div>
       <button type="button" className="workflow-graph-agent-card" onClick={onOpenAgentCard}>Agent card</button>
     </div>
     <div className="workflow-graph-body">
-    <div ref={canvasRef} className="workflow-graph-canvas" style={{ backgroundPosition: `${pan.x + 12}px ${pan.y + 12}px` }} role="application" tabIndex={0} aria-label={managedGraph ? `${agentName} graph` : `${agentName} graph. Drag to pan. Press plus to add a node, zero to reset view, or Delete on a focused node or link to remove it.`} data-panning={panning} data-drag-over={!managedGraph && dragOver} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan}
-      onKeyDown={event => { if (managedGraph || event.target !== event.currentTarget) return; if (event.key === '+' || event.key === '=' || event.key.toLowerCase() === 'n') { event.preventDefault(); if (nodes.length < 100) addNode('workflow', { x: Math.max(8, event.currentTarget.clientWidth / 2 - pan.x - nodeWidth / 2), y: Math.max(8, event.currentTarget.clientHeight / 2 - pan.y - nodeWidth / 2) }); } else if (event.key === '0') { event.preventDefault(); setPan({ x: 0, y: 0 }); } }}
+    <div ref={canvasRef} className="workflow-graph-canvas" style={{ backgroundPosition: `${pan.x + 12 * pan.zoom}px ${pan.y + 12 * pan.zoom}px`, backgroundSize: `${24 * pan.zoom}px ${24 * pan.zoom}px` }} role="application" tabIndex={0} aria-label={managedGraph ? `${agentName} graph` : `${agentName} graph. Drag to pan. Press plus to add a node, zero to reset view, or Delete on a focused node or link to remove it.`} data-panning={panning} data-drag-over={!managedGraph && dragOver} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan}
+      onKeyDown={event => {
+        if (event.key === 'Escape' && draft) { event.preventDefault(); portDragRef.current = null; setDraft(null); return; }
+        if (event.target !== event.currentTarget) return;
+        if (managedGraph) {
+          if (['+', '=', '-'].includes(event.key)) { event.preventDefault(); zoomGraph(event.key === '-' ? -1 : 1); }
+          else if (['0', 'f', 'F'].includes(event.key)) { event.preventDefault(); fitGraph(); }
+          else {
+            const delta = { ArrowLeft: [40, 0], ArrowRight: [-40, 0], ArrowUp: [0, 40], ArrowDown: [0, -40] }[event.key];
+            if (delta) { event.preventDefault(); setView(current => ({ ...current, x: current.x + delta[0], y: current.y + delta[1] })); }
+          }
+          return;
+        }
+        if (event.key === '+' || event.key === '=' || event.key.toLowerCase() === 'n') { event.preventDefault(); if (nodes.length < 100) addNode('workflow', { x: Math.max(8, event.currentTarget.clientWidth / 2 - pan.x - nodeWidth / 2), y: Math.max(8, event.currentTarget.clientHeight / 2 - pan.y - nodeWidth / 2) }); }
+        else if (event.key === '0') { event.preventDefault(); setPan({ x: 0, y: 0 }); }
+      }}
       onDragOver={event => { if (managedGraph) return; if (event.dataTransfer.types.includes('application/x-toolhub-graph-node')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragOver(true); } }}
       onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOver(false); }}
       onDrop={event => { if (managedGraph) return; setDragOver(false); const kind = event.dataTransfer.getData('application/x-toolhub-graph-node'); if (kind !== 'workflow' && kind !== 'context' && kind !== 'agent' && kind !== 'tool-calling' && kind !== 'human-approval' && kind !== 'skill' && kind !== 'agent-handoff') return; event.preventDefault(); const box = event.currentTarget.getBoundingClientRect(); addNode(kind, { x: event.clientX - box.left - pan.x - nodeWidth / 2, y: event.clientY - box.top - pan.y - nodeWidth / 2 }); }}>
       {(graphError || screenContextError) && <div className="workflow-graph-context-error" role="alert">{graphError || screenContextError}{screenContextError && <button type="button" onClick={() => setScreenContextRetry(value => value + 1)}>Retry</button>}</div>}
-      <div ref={stageRef} className="workflow-graph-stage" style={{ minHeight: stageHeight, minWidth: stageWidth, transform: `translate3d(${pan.x}px, ${pan.y}px, 0)` }}>
+      <div ref={stageRef} className="workflow-graph-stage" style={{ minHeight: stageHeight, minWidth: stageWidth, transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${pan.zoom})`, transformOrigin: '0 0' }}>
         {loaded && nodes.length === 0 && <div className="workflow-graph-empty"><Workflow size={26}/><strong>{managedGraph ? 'No nodes' : 'Start with a node'}</strong>{!managedGraph && <span>Click or drag a node from the sidebar, or press +.</span>}</div>}
         <svg className="workflow-graph-links" aria-label="Workflow links">
           <defs><marker id="workflow-link-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9" fill="none" stroke="#96958e" strokeWidth="1.5"/></marker></defs>
@@ -814,14 +868,14 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
             const d = linkPath(source, target, link.command);
             const labelX = (source.x + nodeWidth + target.x) / 2;
             const labelY = (outputPoint(source, link.command).y + target.y + nodeWidth / 2) / 2;
-            const label = source.kind === 'human-approval' ? link.command === 'loop' ? 'Loop' : link.command === 'deny' ? 'Deny' : 'Approve' : 'input';
+            const label = managedGraph ? '' : source.kind === 'human-approval' ? link.command === 'loop' ? 'Loop' : link.command === 'deny' ? 'Deny' : 'Approve' : 'input';
             const labelWidth = label === 'Approve' ? 58 : 46;
             return <ContextMenu key={link.id}><ContextMenuTrigger render={<g/>} className={selectedLink === link.id ? 'workflow-graph-link is-selected' : 'workflow-graph-link'} onContextMenu={() => setSelectedLink(link.id)}>
               <path d={d} className="connection-hit" role="button" tabIndex={0} aria-label={`${label} connection from ${source.name} to ${target.name}. Press Delete to remove.`} onPointerDown={event => event.stopPropagation()} onClick={event => { event.currentTarget.focus(); setSelectedLink(link.id); }} onKeyDown={event => { if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); event.stopPropagation(); if (!event.repeat) { setLinks(current => current.filter(item => item.id !== link.id)); setSelectedLink(null); } } else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedLink(link.id); } }}/>
               <path d={d} className="connection-line" markerEnd="url(#workflow-link-arrow)"/>
-              <path d={d} className="connection-motion"/>
-              <g className="workflow-edge-label" aria-hidden="true" transform={`translate(${labelX} ${labelY})`}><rect x={-labelWidth / 2} y="-10" width={labelWidth} height="20" rx="5"/><text textAnchor="middle" dominantBaseline="central">{label}</text></g>
-            </ContextMenuTrigger><ContextMenuContent className="node-context-menu workflow-edge-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>{source.kind === 'human-approval' ? (target.kind === 'agent' ? ['approve', 'deny', 'loop'] as const : ['approve', 'deny'] as const).map(branch => <ContextMenuItem key={branch} onClick={() => setLinks(current => current.some(item => item.id !== link.id && item.source === link.source && item.target === link.target && item.command === branch) ? current : current.map(item => item.id === link.id ? { ...item, command: branch } : item))}><Check/>{branch === 'approve' ? 'Approve' : branch === 'deny' ? 'Deny' : 'Loop'}{link.command === branch && <span className="node-delete-shortcut">Selected</span>}</ContextMenuItem>) : <ContextMenuItem><Check/>Input<span className="node-delete-shortcut">Selected</span></ContextMenuItem>}</ContextMenuContent></ContextMenu>;
+              {!managedGraph && <path d={d} className="connection-motion"/>}
+              {!managedGraph && <g className="workflow-edge-label" aria-hidden="true" transform={`translate(${labelX} ${labelY})`}><rect x={-labelWidth / 2} y="-10" width={labelWidth} height="20" rx="5"/><text textAnchor="middle" dominantBaseline="central">{label}</text></g>}
+            </ContextMenuTrigger><ContextMenuContent className="node-context-menu workflow-edge-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>{managedGraph ? <ContextMenuItem variant="destructive" onClick={() => { setLinks(current => current.filter(item => item.id !== link.id)); setSelectedLink(null); }}><Trash2/>Delete connection</ContextMenuItem> : source.kind === 'human-approval' ? (target.kind === 'agent' ? ['approve', 'deny', 'loop'] as const : ['approve', 'deny'] as const).map(branch => <ContextMenuItem key={branch} onClick={() => setLinks(current => current.some(item => item.id !== link.id && item.source === link.source && item.target === link.target && item.command === branch) ? current : current.map(item => item.id === link.id ? { ...item, command: branch } : item))}><Check/>{branch === 'approve' ? 'Approve' : branch === 'deny' ? 'Deny' : 'Loop'}{link.command === branch && <span className="node-delete-shortcut">Selected</span>}</ContextMenuItem>) : <ContextMenuItem><Check/>Input<span className="node-delete-shortcut">Selected</span></ContextMenuItem>}</ContextMenuContent></ContextMenu>;
           })}
           {draft && (() => { const source = nodes.find(node => node.id === draft.source); const target = draft.target ? nodes.find(node => node.id === draft.target) : null; return source ? <path className={`connection-preview${target ? ' is-ready' : ''}`} d={curve(outputPoint(source, draft.command), target ? { x: target.x, y: target.y + nodeWidth / 2 } : draft.point)}/> : null; })()}
         </svg>
@@ -848,8 +902,8 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
             } : item));
           }}
         >{(() => { const Icon = iconOptions.find(option => option.type === node.icon)?.icon || Workflow; return <Icon size={28} strokeWidth={1.6} aria-hidden="true"/>; })()}</button><span className="workflow-graph-node-label node-name" title={node.name}>{node.name}</span><span className={`node-status${node.active ? ' is-active' : ''}`}><span aria-hidden="true"/>{!node.active ? 'Inactive' : node.kind === 'agent-handoff' ? node.handoffMode === 'receive' ? 'Receive' : 'Send' : 'Active'}</span>
-          {node.kind !== 'repo-reader' && <button type="button" className={`node-port workflow-graph-port workflow-graph-port-input${draft && draft.source !== node.id ? ' can-connect' : ''}${draft?.target === node.id ? ' is-target' : ''}${links.some(link => link.target === node.id) ? ' is-connected' : ''}`} data-workflow-input={node.id} aria-label={`Input of ${node.name}`} title={managedGraph ? "Input" : "Input — drop a connection here"} onPointerDown={event => event.stopPropagation()} onClick={() => { if (draft) connect(draft.source, node.id, draft.command); }}/> }
-          {(node.kind === 'human-approval' ? ['approve', 'deny'] as const : ['input'] as const).map(command => <button key={command} type="button" className={`node-port workflow-graph-port workflow-graph-port-output${node.kind === 'human-approval' ? ` is-${command}` : ''}${links.some(link => link.source === node.id && (link.command === command || command === 'deny' && link.command === 'loop')) ? ' is-connected' : ''}`} aria-label={`${command === 'input' ? 'Connect' : command === 'approve' ? 'Approve' : 'Deny'} from ${node.name}`} title={managedGraph ? command === 'input' ? 'Output' : command : `${command === 'input' ? 'Output' : command === 'approve' ? 'Approve' : 'Deny'} — drag to another node's input`} onPointerDown={event => startConnection(event, node, command)} onPointerMove={event => moveConnection(event, node.id)} onPointerUp={event => endConnection(event, node.id)} onPointerCancel={event => { event.stopPropagation(); portDragRef.current = null; setDraft(null); }} onLostPointerCapture={event => { event.stopPropagation(); if (portDragRef.current) { portDragRef.current = null; setDraft(null); } }} onClick={event => { if (managedGraph || event.detail === 0) { const point = outputPoint(node, command); setDraft({ source: node.id, command, point: { x: point.x + 66, y: point.y }, target: null }); } }}/>) }
+          {(managedGraph || node.kind !== 'repo-reader') && <button type="button" className={`node-port workflow-graph-port workflow-graph-port-input${draft && draft.source !== node.id ? ' can-connect' : ''}${draft?.target === node.id ? ' is-target' : ''}${links.some(link => link.target === node.id) ? ' is-connected' : ''}`} data-workflow-input={node.id} aria-label={`Input of ${node.name}`} title={managedGraph ? "Input — visual connection" : "Input — drop a connection here"} onPointerDown={event => event.stopPropagation()} onClick={() => { if (draft) connect(draft.source, node.id, draft.command); }}/> }
+          {(!managedGraph && node.kind === 'human-approval' ? ['approve', 'deny'] as const : ['input'] as const).map(command => <button key={command} type="button" className={`node-port workflow-graph-port workflow-graph-port-output${node.kind === 'human-approval' ? ` is-${command}` : ''}${links.some(link => link.source === node.id && (link.command === command || command === 'deny' && link.command === 'loop')) ? ' is-connected' : ''}`} aria-label={`${command === 'input' ? 'Connect' : command === 'approve' ? 'Approve' : 'Deny'} from ${node.name}`} title={managedGraph ? 'Output — visual connection' : `${command === 'input' ? 'Output' : command === 'approve' ? 'Approve' : 'Deny'} — drag to another node's input`} onPointerDown={event => startConnection(event, node, command)} onPointerMove={event => moveConnection(event, node.id)} onPointerUp={event => endConnection(event, node.id)} onPointerCancel={event => { event.stopPropagation(); portDragRef.current = null; setDraft(null); }} onLostPointerCapture={event => { event.stopPropagation(); if (portDragRef.current) { portDragRef.current = null; setDraft(null); } }} onClick={event => { if (event.detail === 0) { const point = outputPoint(node, command); setDraft({ source: node.id, command, point: { x: point.x + 66, y: point.y }, target: null }); } }}/>) }
         </ContextMenuTrigger><ContextMenuContent className="node-context-menu" finalFocus={false} onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
           <ContextMenuItem disabled={!node.active || execution?.running || chatBusy} onClick={() => void playGraphNode(node)}><Play/>Play</ContextMenuItem>
           {node.kind === 'repo-reader' && <ContextMenuItem onClick={() => setEditingRepo(node.id)}><FileText/>View functions</ContextMenuItem>}
@@ -865,6 +919,12 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
           <ContextMenuItem variant="destructive" onClick={() => removeNode(node.id)}><Trash2/>Delete node<span className="node-delete-shortcut">⌫ / Del</span></ContextMenuItem>
         </ContextMenuContent></ContextMenu>)}
       </div>
+      {managedGraph && <fieldset className="canvas-toolbar workflow-viewport-tools"><legend className="sr-only">Canvas tools</legend>
+        <Button className="canvas-control" variant="outline" aria-label="Fit screen" title="Fit screen (0)" onClick={fitGraph}><Scan size={19}/></Button>
+        <Button className="canvas-control" variant="outline" aria-label="Zoom in" title="Zoom in (+)" disabled={pan.zoom >= MAX_ZOOM} onClick={() => zoomGraph(1)}><ZoomIn size={19}/></Button>
+        <Button className="canvas-control" variant="outline" aria-label="Zoom out" title="Zoom out (−)" disabled={pan.zoom <= MIN_ZOOM} onClick={() => zoomGraph(-1)}><ZoomOut size={19}/></Button>
+        <output className="canvas-zoom-value" aria-label="Zoom level">{Math.round(pan.zoom * 100)}%</output>
+      </fieldset>}
       {managedGraph && <GraphChat key={agentId} agentId={agentId} agentName={agentName} disabled={!loaded || Boolean(execution?.running) || runningAgent} onBeforeSend={saveGraphBeforeChat} onBusyChange={setChatBusy} onNodeStart={setChatRunningNodeId} onNodeResult={(id, output) => updateNode(id, { lastOutput: output })} onOpenNode={id => { if (nodes.some(node => node.id === id && node.kind === 'repo-reader')) setEditingRepo(id); }}/>}
     </div>
     {!managedGraph && <aside className="workflow-graph-sidebar node-picker" aria-label="Add graph node">
@@ -883,9 +943,9 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
         {(() => {
           const node = nodes.find(item => item.id === editingWorkflow);
           if (!node) return null;
-          const registry = buildConnectedTagRegistry(node.id, nodes, links);
+          const registry = buildConnectedTagRegistry(node.id, nodes, runtimeLinks);
           const available = [...registry.definitions.values()];
-          const resolved = resolveConnectedInput(node.id, node.taskText, nodes, links);
+          const resolved = resolveConnectedInput(node.id, node.taskText, nodes, runtimeLinks);
           const suggestions = taskTagPicker ? available.filter(tag => tag.name.toLowerCase().includes(taskTagPicker.query.trim().toLowerCase()) && !registry.conflicts.has(tag.name.toLocaleLowerCase('en-US'))).slice(0, 8) : [];
           return <div className="workflow-task-form">
             <label htmlFor="workflow-task-text">Task</label>
@@ -917,12 +977,12 @@ export function AgentWorkflowGraph({ agentId, agentName, onOpenAgentCard }: { ag
         {(() => {
           const node = nodes.find(item => item.id === editingAgent);
           if (!node) return null;
-          const registry = buildConnectedTagRegistry(node.id, nodes, links);
+          const registry = buildConnectedTagRegistry(node.id, nodes, runtimeLinks);
           const available = [...registry.definitions.values()];
           const selectedTags = new Set(Array.from(instructionDraft.matchAll(/\/([^/*\n]{1,40})\//g), match => match[1].trim().toLocaleLowerCase('en-US')));
           const missingTags = available.filter(tag => !registry.conflicts.has(tag.name.toLocaleLowerCase('en-US')) && !selectedTags.has(tag.name.toLocaleLowerCase('en-US')));
           const suggestions = instructionTagPicker ? available.filter(tag => tag.name.toLowerCase().includes(instructionTagPicker.query.trim().toLowerCase()) && !registry.conflicts.has(tag.name.toLocaleLowerCase('en-US'))).slice(0, 8) : [];
-          const inputCheck = resolveConnectedInput(node.id, instructionDraft, nodes, links);
+          const inputCheck = resolveConnectedInput(node.id, instructionDraft, nodes, runtimeLinks);
           const files = outputFiles(node.lastOutput);
           const data = agentOutputData(node.lastOutput);
           const previousRunFailed = Boolean(data && typeof data === 'object' && !Array.isArray(data) && (data as Record<string, unknown>).success === false);

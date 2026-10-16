@@ -26,7 +26,12 @@ export type DesignerGraphDocument = {
   screenContextsSeeded: boolean;
   screenContextVersion: number;
   repoReaderSeeded?: boolean;
+  linkMode?: 'visual';
 };
+
+export function executionGraph(document: DesignerGraphDocument): DesignerGraphDocument {
+  return document.linkMode === 'visual' || document.repoReaderSeeded ? { ...document, links: [] } : document;
+}
 
 export function graphIdForAgent(agentId: string) {
   if (agentId !== 'ba' && agentId !== 'designer' && agentId !== 'developer' && !/^custom-[0-9a-f-]{36}$/.test(agentId)) throw new Error('Invalid agent ID.');
@@ -54,13 +59,21 @@ export function validateDesignerGraph(value: unknown): DesignerGraphDocument {
   const ids = new Set(nodes.map(item => (item as DesignerGraphNode).id));
   if (ids.size !== nodes.length) throw new Error('Graph has duplicate node IDs.');
   const kinds = new Map(nodes.map(item => [(item as DesignerGraphNode).id, (item as DesignerGraphNode).kind]));
-  if ((graph.links as unknown[]).some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as ContextInputLink).source !== 'string' || typeof (item as ContextInputLink).target !== 'string' || (item as ContextInputLink).source === (item as ContextInputLink).target || !ids.has((item as ContextInputLink).source) || !ids.has((item as ContextInputLink).target) || kinds.get((item as ContextInputLink).target) === 'repo-reader' || !(kinds.get((item as ContextInputLink).source) === 'human-approval' ? ['input', 'approve', 'deny', 'loop'] : ['input']).includes((item as ContextInputLink).command) || (item as ContextInputLink).command === 'loop' && kinds.get((item as ContextInputLink).target) !== 'agent')) throw new Error('Graph has an invalid link.');
+  const visual = graph.linkMode === 'visual' || graph.repoReaderSeeded === true;
+  if ((graph.links as unknown[]).some(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return true;
+    const link = item as ContextInputLink;
+    if (typeof link.source !== 'string' || typeof link.target !== 'string' || link.source === link.target || !ids.has(link.source) || !ids.has(link.target)) return true;
+    if (visual) return !['input', 'approve', 'deny', 'loop'].includes(link.command);
+    return kinds.get(link.target) === 'repo-reader' || !(kinds.get(link.source) === 'human-approval' ? ['input', 'approve', 'deny', 'loop'] : ['input']).includes(link.command) || link.command === 'loop' && kinds.get(link.target) !== 'agent';
+  })) throw new Error('Graph has an invalid link.');
   return {
     nodes: nodes as DesignerGraphNode[],
     links: graph.links as ContextInputLink[],
     screenContextsSeeded: graph.screenContextsSeeded === true,
     screenContextVersion: graph.screenContextVersion === 2 ? 2 : 0,
     ...(graph.repoReaderSeeded === true ? { repoReaderSeeded: true } : {}),
+    ...(visual ? { linkMode: 'visual' as const } : {}),
   };
 }
 
@@ -119,7 +132,7 @@ export function seedRepositoryReader(document: DesignerGraphDocument | null, age
     repoToolId: toolIds.length === 1 ? toolIds[0] : '',
   };
   if (graph.nodes.length >= 100) throw new Error('Remove a node before adding Read Repository.');
-  return { ...graph, repoReaderSeeded: true, nodes: [...graph.nodes, node] };
+  return { ...graph, repoReaderSeeded: true, linkMode: 'visual', nodes: [...graph.nodes, node] };
 }
 
 export async function saveDesignerGraph(value: unknown, expectedRevision: number, agentId = 'designer'): Promise<number> {
@@ -163,7 +176,7 @@ export async function saveDesignerGraphOutput(nodeId: string, content: string, a
     await client.query('BEGIN');
     const { rows } = await client.query<{ document: DesignerGraphDocument }>('SELECT document FROM designer_graphs WHERE id=$1', [graphIdForAgent(agentId)]);
     if (!rows[0]) throw new Error('Save the graph before running a node.');
-    const graph = validateDesignerGraph(rows[0].document);
+    const graph = executionGraph(validateDesignerGraph(rows[0].document));
     const source = graph.nodes.find(node => node.id === nodeId);
     if (!source) throw new Error('Node does not belong to this agent graph.');
     await client.query('INSERT INTO designer_graph_outputs (node_id,content) VALUES ($1,$2) ON CONFLICT (node_id) DO UPDATE SET content=EXCLUDED.content,updated_at=now()', [nodeId, content]);
@@ -179,7 +192,7 @@ export async function saveDesignerGraphOutput(nodeId: string, content: string, a
 export type GraphApproval = { id: string; source_node_id: string; approval_node_id: string; source_name: string; output: string; created_at: string };
 
 export async function getPendingGraphApproval(): Promise<GraphApproval | null> {
-  const { rows } = await getDatabase().query<GraphApproval>('SELECT id, source_node_id, approval_node_id, source_name, output, created_at FROM designer_graph_approvals WHERE status=$1 ORDER BY created_at, id LIMIT 1', ['pending']);
+  const { rows } = await getDatabase().query<GraphApproval>(`SELECT a.id, a.source_node_id, a.approval_node_id, a.source_name, a.output, a.created_at FROM designer_graph_approvals a WHERE a.status=$1 AND EXISTS (SELECT 1 FROM designer_graphs g, jsonb_array_elements(g.document->'nodes') AS n(value) WHERE n.value->>'id'=a.approval_node_id AND COALESCE(g.document->>'linkMode','')<>'visual' AND COALESCE(g.document->>'repoReaderSeeded','false')<>'true') ORDER BY a.created_at, a.id LIMIT 1`, ['pending']);
   return rows[0] || null;
 }
 
@@ -196,7 +209,7 @@ export async function getLatestGraphApproval(approvalNodeId: string): Promise<Gr
   try { agentId = await agentIdForGraphNode(approvalNodeId); }
   catch (error) { if (error instanceof Error && error.message === 'Graph node not found.') return latestApproval; throw error; }
   const { document } = await getDesignerGraph(agentId);
-  const incoming = document?.links.filter(link => link.target === approvalNodeId && link.command === 'input').map(link => link.source) || [];
+  const incoming = document ? executionGraph(document).links.filter(link => link.target === approvalNodeId && link.command === 'input').map(link => link.source) : [];
   if (!incoming.length) return latestApproval;
   const { rows: outputs } = await getDatabase().query<{ node_id: string; content: string; updated_at: Date }>(
     'SELECT node_id, content, updated_at FROM designer_graph_outputs WHERE node_id = ANY($1::text[]) ORDER BY updated_at DESC LIMIT 1',
@@ -220,7 +233,7 @@ export async function decideGraphApproval(id: string | null, decision: 'approved
   try {
     await client.query('BEGIN');
     const { rows } = await client.query<{ document: DesignerGraphDocument }>('SELECT document FROM designer_graphs WHERE id=$1 FOR UPDATE', [graphIdForAgent(agentId)]);
-    const graph = rows[0] ? validateDesignerGraph(rows[0].document) : null;
+    const graph = rows[0] ? executionGraph(validateDesignerGraph(rows[0].document)) : null;
     if (!graph) throw new Error('Save the agent graph before reviewing output.');
     let approval: { approval_node_id: string; output: string };
     let approvalId = id;
@@ -257,6 +270,7 @@ export async function markGraphFeedbackConsumed(id: string): Promise<void> {
 }
 
 export function graphAgentTask(node: DesignerGraphNode, document: DesignerGraphDocument, fallbackTask: string): string {
+  document = executionGraph(document);
   const hasWorkflowTask = document.links.some(link => link.target === node.id && link.command === 'input' && document.nodes.some(item => item.id === link.source && item.kind === 'workflow' && item.active !== false && item.taskText?.trim()));
   if (node.instructionPrompt?.trim()) return node.instructionPrompt.trim();
   if (hasWorkflowTask || !fallbackTask.trim()) return '';
@@ -267,6 +281,7 @@ export function graphAgentTask(node: DesignerGraphNode, document: DesignerGraphD
 }
 
 export function graphRunIncomingLinks(document: DesignerGraphDocument, nodeId: string): ContextInputLink[] {
+  document = executionGraph(document);
   const incoming = document.links.filter(link => link.target === nodeId && (link.command === 'input' || link.command === 'approve'));
   if (!incoming.length && document.links.some(link => link.target === nodeId && (link.command === 'deny' || link.command === 'loop'))) throw new Error('The Deny branch is waiting for its execution logic.');
   return incoming;
@@ -275,6 +290,7 @@ export function graphRunIncomingLinks(document: DesignerGraphDocument, nodeId: s
 export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', approvedOutput = '', liveHandoffs: Record<string, string> = {}, agentId = 'designer') {
   const stored = await getDesignerGraph(agentId);
   if (!stored.document) throw new Error('Save the agent graph before running it through MCP.');
+  stored.document = executionGraph(stored.document);
   const savedNode = stored.document.nodes.find(item => item.id === nodeId);
   const initialTask = savedNode ? graphAgentTask(savedNode, stored.document, fallbackTask || (approvedOutput ? 'Continue the workflow using the approved output from the previous node.' : '')) : '';
   const document = await refreshLinkedContext(stored.document, agentId, nodeId, initialTask);
@@ -298,6 +314,7 @@ export async function runStoredGraphAgent(nodeId: string, fallbackTask = '', app
 export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string, string> = {}, agentId = 'designer') {
   const stored = await getDesignerGraph(agentId);
   if (!stored.document) throw new Error('Save the agent graph before running a node.');
+  stored.document = executionGraph(stored.document);
   const document = stored.document.nodes.some(node => node.id === nodeId && node.kind === 'context') ? await refreshLinkedContext(stored.document, agentId, nodeId) : stored.document;
   const nodeById = new Map(document.nodes.map(node => [node.id, node]));
   if (!nodeById.has(nodeId)) throw new Error('Graph node not found.');
