@@ -73,3 +73,87 @@ void test('unsupported fetched sources and syntax diagnostics affect AST coverag
   assert.ok(ast.notes.some(note => note.includes('syntax errors')));
   assert.ok(ast.notes.some(note => note.includes('no AST adapter')));
 });
+
+function classifySources(files: Record<string, string>) {
+  const ast = astLayers(Object.entries(files).map(([path, content]) => ({ path, content })), '', metadata);
+  const graph = dependencyGraph(ast);
+  return layerAssignment(ruleClassifier(graph)).items as Array<LayerRule & { layer: string }>;
+}
+
+void test('resolved calls identify database wrappers and business orchestration outside conventional folders', () => {
+  const rows = classifySources({
+    'store.ts': `export function loadRows() { return db.from('contacts').select('id'); }`,
+    'bridge.ts': `import { loadRows } from './store'; export function forwardRows() { return loadRows(); }`,
+    'main.ts': `import { forwardRows } from './bridge'; export function processRequest(allowed) { if (allowed) return forwardRows(); return []; }`,
+  });
+  const wrapper = rows.find(row => row.name === 'forwardRows')!;
+  assert.equal(wrapper.layer, 'database');
+  assert.equal(wrapper.basis, 'dependency');
+  assert.equal(wrapper.confidence, 'medium');
+  assert.match(wrapper.evidence.join(' '), /store.ts:1 loadRows/);
+  assert.equal(rows.find(row => row.name === 'processRequest')?.layer, 'business_logic');
+});
+
+void test('helper called by presentation and business is shared utility, not incorrectly mixed', () => {
+  const rows = classifySources({
+    'helpers.ts': `export function normalize(value) { return value.trim().toLowerCase(); }`,
+    'Screen.tsx': `import { normalize } from './helpers'; export function Screen() { return <span>{normalize('hello')}</span>; }`,
+    'app/api/name/route.ts': `import { normalize } from '../../../helpers'; export function POST() { return normalize('hello'); }`,
+  });
+  const helper = rows.find(row => row.name === 'normalize')!;
+  assert.equal(helper.layer, 'shared_utility');
+  assert.equal(helper.basis, 'utility');
+  assert.match(helper.evidence.join(' '), /presentation.*business_logic|business_logic.*presentation/);
+  assert.ok(!helper.unknown_reason);
+});
+
+void test('pure helper used exclusively by UI receives a medium-confidence presentation context', () => {
+  const rows = classifySources({
+    'helpers.ts': `export function label(value) { return String(value).trim(); }`,
+    'Screen.tsx': `import { label } from './helpers'; export function Screen() { return <span>{label('name')}</span>; }`,
+  });
+  const helper = rows.find(row => row.name === 'label')!;
+  assert.equal(helper.layer, 'presentation');
+  assert.equal(helper.basis, 'dependency');
+  assert.equal(helper.confidence, 'medium');
+});
+
+void test('import-only relationships and effects never turn arbitrary helpers into database or utility code', () => {
+  const rows = classifySources({
+    'helpers.ts': `export function helper(value) { return value; } export function effects() { return fetch('/send').then(result => String(result)); }`,
+    'store.ts': `import { helper, effects } from './helpers'; export function loadRows() { return db.from('contacts').select('id'); }`,
+  });
+  for (const name of ['helper', 'effects']) {
+    const helper = rows.find(row => row.name === name)!;
+    assert.equal(helper.layer, 'unknown');
+    assert.ok(helper.unknown_reason);
+  }
+});
+
+void test('unseeded call cycles stay unknown with a reason instead of reinforcing a guessed label', () => {
+  const rows = classifySources({ 'cycle.ts': `function first() { return second(); } function second() { return first(); }` });
+  for (const name of ['first', 'second']) {
+    const row = rows.find(row => row.name === name)!;
+    assert.equal(row.layer, 'unknown');
+    assert.match(row.unknown_reason!, /mixed or unresolved roles/);
+  }
+});
+
+void test('default imports and Python self methods resolve to their actual function definitions', () => {
+  const ast = astLayers([
+    { path: 'helper.ts', content: `export default function normalize(value) { return value.trim(); }` },
+    { path: 'Screen.tsx', content: `import label from './helper'; export function Screen() { return <span>{label('name')}</span>; }` },
+    { path: 'worker.py', content: `class Client:\n    def load(self):\n        return db.table('items').select('id')\n    def forward(self):\n        return self.load()\n` },
+  ], '', metadata);
+  const graph = dependencyGraph(ast);
+  const edges = graph.items as SeeEdge[];
+  assert.ok(edges.some(edge => edge.relation === 'calls' && edge.evidence === 'label' && edge.target.includes(':normalize')));
+  assert.ok(edges.some(edge => edge.relation === 'calls' && edge.evidence === 'self.load' && edge.target.includes('Client.load')));
+  const rows = layerAssignment(ruleClassifier(graph)).items as Array<LayerRule & { layer: string }>;
+  assert.equal(rows.find(row => row.name === 'Client.forward')?.layer, 'database');
+});
+
+void test('SQL cursor execute calls classify as database without requiring a from/table pattern', () => {
+  const rows = classifySources({ 'connection.ts': `export function load() { return cursor.execute('SELECT id FROM contacts'); }` });
+  assert.equal(rows.find(row => row.name === 'load')?.layer, 'database');
+});

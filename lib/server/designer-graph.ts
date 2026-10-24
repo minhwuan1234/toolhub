@@ -7,6 +7,7 @@ import { getAgentCard } from './agent-cards';
 import { isToolImported } from './imported-tools';
 import { seeStages, isSeeStage, type SeeOutput, type SeeStage } from '../see-contract';
 import { astLayers, dependencyGraph, ruleClassifier, layerAssignment } from '../repository-see';
+import { parsePythonSources } from './python-ast';
 import { analyzeFeaturePlan } from './think';
 import { readAgentRepository, repositoryToolsForAgent } from './repository-reader';
 
@@ -212,7 +213,7 @@ export async function runRepositorySee(agentId: string, readerId: string, toolId
       signal?.throwIfAborted();
       const node = await assertSeeAccess(agentId, readerId, stages[index]!.id, result.tool_id);
       emit({ type: 'node_start', nodeId: node.id, name: node.name, query: index === 0 ? query : '' });
-      previous = index === 0 ? astLayers(sources, query, { run_id: runId, source_node_id: readerId, repository: result.repository, commit: result.commit, tool_id: result.tool_id, coverage: result.coverage }) : index === 1 ? dependencyGraph(previous!) : index === 2 ? ruleClassifier(previous!) : layerAssignment(previous!);
+      previous = index === 0 ? astLayers(sources, query, { run_id: runId, source_node_id: readerId, repository: result.repository, commit: result.commit, tool_id: result.tool_id, coverage: result.coverage }, await parsePythonSources(sources, signal)) : index === 1 ? dependencyGraph(previous!) : index === 2 ? ruleClassifier(previous!) : layerAssignment(previous!);
       await assertSeeAccess(agentId, readerId, node.id, result.tool_id);
       const output = JSON.stringify(previous);
       await saveDesignerGraphOutput(node.id, output, agentId);
