@@ -3,7 +3,7 @@ import { reserveAgentApiSpend, settleAgentApiSpend } from './agent-api-spend';
 
 export async function analyzeFeaturePlan(request: string, sourceNodeId: string, scan: Record<string, unknown>, signal?: AbortSignal): Promise<ThinkOutput> {
   if (!request.trim() || request.length > 4000) throw new Error('Think needs the original feature request.');
-  if (!Array.isArray(scan.functions) || !Array.isArray(scan.groups) || typeof scan.repository !== 'string' || typeof scan.commit !== 'string') throw new Error('Read Repository output is missing.');
+  if (!Array.isArray(scan.files) || !scan.layer_assignment || typeof scan.repository !== 'string' || typeof scan.commit !== 'string') throw new Error('Read Repository output is missing.');
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error('The AI model is not configured.');
   const model = process.env.AGENT_MODEL || 'gpt-5.6-luna';

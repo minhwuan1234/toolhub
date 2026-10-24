@@ -8,7 +8,7 @@ import { isToolImported } from './imported-tools';
 import { seeStages, isSeeStage, type SeeOutput, type SeeStage } from '../see-contract';
 import { astLayers, dependencyGraph, ruleClassifier, layerAssignment } from '../repository-see';
 import { analyzeFeaturePlan } from './think';
-import { readAgentRepository, repositoryReplayQuery, repositoryToolsForAgent } from './repository-reader';
+import { readAgentRepository, repositoryToolsForAgent } from './repository-reader';
 
 export type DesignerGraphNode = ContextTagSource & {
   id: string;
@@ -200,18 +200,18 @@ export async function runRepositorySee(agentId: string, readerId: string, toolId
   const stages = seeStages.map(stage => graph.document!.nodes.find(node => node.kind === stage.kind && node.seeSourceId === readerId));
   if (stages.slice(0, stopAfter ? seeStages.findIndex(stage => stage.kind === stopAfter) + 1 : 4).some(node => !node || node.active === false)) throw new Error('Enable all four See nodes before reading this repository.');
   let assignment: SeeOutput | undefined;
-  const scan = await readAgentRepository(agentId, toolId, query, async (result, sources) => {
+  const scan = await readAgentRepository(agentId, toolId, async (result, sources) => {
     signal?.throwIfAborted();
     const currentReader = (await getDesignerGraph(agentId)).document?.nodes.find(node => node.id === readerId && node.kind === 'repo-reader' && node.active !== false && (!node.repoToolId || node.repoToolId === result.tool_id));
     if (!currentReader || !(await repositoryToolsForAgent(agentId)).some(tool => tool.id === result.tool_id)) throw new Error('Graph access changed during repository read.');
-    const output = JSON.stringify({ ...result, run_id: runId, query_source: 'model', user_request: request });
+    const output = JSON.stringify({ ...result, run_id: runId, user_request: request });
     await saveDesignerGraphOutput(readerId, output, agentId);
     emit({ type: 'node_result', nodeId: reader.id, name: reader.name, output });
     let previous: SeeOutput | undefined;
     for (const [index, stage] of seeStages.entries()) {
       signal?.throwIfAborted();
       const node = await assertSeeAccess(agentId, readerId, stages[index]!.id, result.tool_id);
-      emit({ type: 'node_start', nodeId: node.id, name: node.name, query: '' });
+      emit({ type: 'node_start', nodeId: node.id, name: node.name, query: index === 0 ? query : '' });
       previous = index === 0 ? astLayers(sources, query, { run_id: runId, source_node_id: readerId, repository: result.repository, commit: result.commit, tool_id: result.tool_id, coverage: result.coverage }) : index === 1 ? dependencyGraph(previous!) : index === 2 ? ruleClassifier(previous!) : layerAssignment(previous!);
       await assertSeeAccess(agentId, readerId, node.id, result.tool_id);
       const output = JSON.stringify(previous);
@@ -221,7 +221,7 @@ export async function runRepositorySee(agentId: string, readerId: string, toolId
     }
     assignment = previous;
   });
-  return { ...scan, run_id: runId, query_source: 'model', user_request: request, layer_counts: assignment?.counts };
+  return { ...scan, run_id: runId, user_request: request, layer_counts: assignment?.counts, layer_preview: assignment?.items.slice(0, 15) };
 }
 
 export async function runStoredSeeStage(nodeId: string, agentId: string) {
@@ -234,8 +234,9 @@ export async function runStoredSeeStage(nodeId: string, agentId: string) {
   await assertSeeAccess(agentId, node.seeSourceId, nodeId, scan.tool_id);
   const index = seeStages.findIndex(stage => stage.kind === node.kind);
   if (index === 0) {
-    const saved = JSON.parse(outputs[node.seeSourceId]) as { query?: string; user_request?: string };
-    await runRepositorySee(agentId, node.seeSourceId, scan.tool_id, saved.query || '', saved.user_request || '', undefined, undefined, 'ast-layers');
+    const saved = JSON.parse(outputs[node.seeSourceId]) as { user_request?: string };
+    const previousAst = JSON.parse(outputs[node.id] || '{}') as { analysis_query?: string };
+    await runRepositorySee(agentId, node.seeSourceId, scan.tool_id, previousAst.analysis_query || '', saved.user_request || '', undefined, undefined, 'ast-layers');
     return JSON.parse((await getDesignerGraphOutputs(agentId))[node.id]) as SeeOutput;
   }
   const previousNode = graph.document!.nodes.find(item => item.kind === seeStages[index - 1].kind && item.seeSourceId === node.seeSourceId && item.active !== false);
@@ -493,10 +494,10 @@ export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string
         waitingForApproval = true;
       } else if (node.kind === 'repo-reader') {
         const previous = await getDatabase().query<{ content: string }>('SELECT content FROM designer_graph_outputs WHERE node_id=$1', [node.id]);
-        const replay = repositoryReplayQuery(previous.rows[0]?.content);
         let userRequest = '';
         try { const saved = JSON.parse(previous.rows[0]?.content || '{}') as { user_request?: unknown }; if (typeof saved.user_request === 'string') userRequest = saved.user_request; } catch { /* No original request on older scans. */ }
-        output = JSON.stringify(await runRepositorySee(agentId, node.id, node.repoToolId || '', replay.query, userRequest));
+        await runRepositorySee(agentId, node.id, node.repoToolId || '', '', userRequest);
+        output = (await getDesignerGraphOutputs(agentId))[node.id] || '';
       } else if (isSeeStage(node.kind)) {
         output = JSON.stringify(await runStoredSeeStage(node.id, agentId));
       } else if (node.kind === 'think') {

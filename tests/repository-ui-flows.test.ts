@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { extractFunctions, type RepositorySource } from '../lib/repository-functions';
 import { groupRepositoryFlows } from '../lib/repository-ui-flows';
-import { repositoryReplayQuery } from '../lib/server/repository-reader';
 
 function group(files: Record<string, string>, query = '') {
   const sources: RepositorySource[] = Object.entries(files).map(([path, content]) => ({ path, content }));
@@ -58,12 +57,6 @@ void test('HTML scripts retain source lines and template flow follows Python ren
 
 void test('backend-only repository still exposes matching groups', () => {
   assert.equal(group({ 'worker.py': 'def send_message():\n    return True\n' }, 'message').groups[0].kind, 'backend');
-});
-
-void test('Play reuses only model-generated queries, ignoring legacy manual values', () => {
-  assert.deepEqual(repositoryReplayQuery('{"query":"message"}'), { query: '', query_source: 'exploration' });
-  assert.deepEqual(repositoryReplayQuery('{"query":"connect", "query_source":"model"}'), { query: 'connect', query_source: 'model' });
-  assert.equal(repositoryReplayQuery('bad json').query, '');
 });
 
 void test('comments cannot create API or database relationships and dynamic calls are marked', () => {

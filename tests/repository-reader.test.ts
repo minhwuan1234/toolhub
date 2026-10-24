@@ -3,7 +3,7 @@ import { test, afterEach } from 'node:test';
 import JSZip from 'jszip';
 import type { Pool } from 'pg';
 import { extractFunctions, searchFunctions } from '../lib/repository-functions';
-import { analyzeRepositoryArchive, readAgentRepository } from '../lib/server/repository-reader';
+import { readRepositoryArchive, readAgentRepository } from '../lib/server/repository-reader';
 import { scannerRepositoryArchive } from '../lib/server/linkedin-scanner';
 import { getDesignerGraph, seedRepositoryReader, seedThinkNode, validateDesignerGraph, type DesignerGraphDocument } from '../lib/server/designer-graph';
 
@@ -59,21 +59,22 @@ void test('keyword search handles camelCase and snake_case, prefers function nam
   assert.equal(searchFunctions(functions, '').length, 2);
 });
 
-void test('on-demand archive scan skips dependencies, reports unsupported languages and can search another tool snapshot', async () => {
+void test('snapshot fetch skips dependencies and loads source files independently of parser support', async () => {
   const zip = new JSZip();
   zip.file('other-tool-sha/src/main.ts', 'export function exportCsv() { return "csv"; }');
   zip.file('other-tool-sha/backend/tasks.py', 'def archive_report():\n    return True\n');
   zip.file('other-tool-sha/node_modules/package/fake.js', 'function ignoreMe() {}');
   zip.file('other-tool-sha/src/worker.go', 'package main');
-  const result = await analyzeRepositoryArchive(await zip.generateAsync({ type: 'uint8array' }), 'export');
-  assert.equal(result.scanned_files, 2);
-  assert.equal(result.total_functions, 2);
+  const result = await readRepositoryArchive(await zip.generateAsync({ type: 'uint8array' }));
+  assert.equal(result.scanned_files, 3);
+  assert.equal(result.files.length, 3);
   assert.equal(result.model_calls, 0);
-  assert.equal(result.functions.length, 1);
-  assert.equal(result.functions[0].path, 'src/main.ts');
-  assert.equal(result.functions[0].name, 'exportCsv');
-  assert.equal(result.coverage, 'partial');
-  assert.deepEqual(result.skipped_files, [{ path: 'src/worker.go', reason: 'Unsupported language' }]);
+  assert.ok(result.files.some(file => file.path === 'src/main.ts'));
+  assert.ok(result.files.some(file => file.path === 'src/worker.go'));
+  assert.equal(result.coverage, 'complete');
+  assert.deepEqual(result.skipped_files, []);
+  assert.ok(!('functions' in result));
+  assert.ok(!('groups' in result));
 });
 
 void test('Upgrading graph seeds one repository node, preserves existing nodes, and keeps marker after validation', () => {
@@ -136,9 +137,9 @@ void test('authorized node scans GitHub snapshot with no model requests and no i
     assert.ok(url.startsWith('https://api.github.com/repos/'));
     return url.includes('/commits?') ? Response.json([{ sha: 'b'.repeat(40) }]) : new Response(Buffer.from(bytes));
   };
-  const result = await readAgentRepository('developer', 'linkedin-scanner', 'connect');
+  const result = await readAgentRepository('developer', 'linkedin-scanner');
   assert.equal(result.model_calls, 0);
-  assert.equal(result.functions[0].name, 'connect');
+  assert.equal(result.files[0].path, 'app.py');
   assert.equal(result.commit, 'b'.repeat(40));
   assert.equal(requests.length, 2);
 });
@@ -147,11 +148,11 @@ void test('oversized source is reported as partial while smaller files still sca
   const zip = new JSZip();
   zip.file('repo/src/large.ts', '// padding\n'.repeat(60000));
   zip.file('repo/src/small.ts', 'function send() {}');
-  const result = await analyzeRepositoryArchive(await zip.generateAsync({ type: 'uint8array' }), '');
+  const result = await readRepositoryArchive(await zip.generateAsync({ type: 'uint8array' }));
   assert.equal(result.scanned_files, 1);
   assert.equal(result.coverage, 'partial');
   assert.equal(result.skipped_files[0].reason, 'File size limit');
-  assert.equal(result.functions[0].name, 'send');
+  assert.equal(result.files[0].path, 'src/small.ts');
 });
 
 void test('search matches function body after its display excerpt and does not store full source', () => {
@@ -190,4 +191,21 @@ void test('Think seeds once into an existing Upgrading graph without changing vi
   assert.equal(validateDesignerGraph(seeded).thinkSeeded, true);
   assert.deepEqual(seedThinkNode(seeded, 'developer'), seeded);
   assert.equal(seedThinkNode({ ...seeded, nodes: [seeded.nodes[0]] }, 'developer').nodes.length, 1);
+});
+
+void test('Read forwards source text unchanged without parsing, searching or storing source in the manifest', async () => {
+  const zip = new JSZip();
+  const content = 'function malformed( { # not valid JS';
+  zip.file('snapshot/app.js', content);
+  zip.file('snapshot/data.json', '{"version":1}');
+  let fetched: Array<{ path: string; content: string }> = [];
+  const result = await readRepositoryArchive(await zip.generateAsync({ type: 'uint8array' }), sources => { fetched = sources; });
+  assert.equal(fetched.find(source => source.path === 'app.js')?.content, content);
+  assert.equal(result.coverage, 'complete');
+  assert.equal(result.files.length, 2);
+  assert.equal(result.operation, 'fetch_code_snapshot');
+  assert.ok(!JSON.stringify(result).includes(content));
+  assert.ok(!('query' in result));
+  assert.ok(!('functions' in result));
+  assert.ok(!('groups' in result));
 });

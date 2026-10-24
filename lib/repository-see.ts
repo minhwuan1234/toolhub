@@ -12,7 +12,10 @@ function finish(output: SeeOutput): SeeOutput {
 
 export function astLayers(sources: RepositorySource[], query: string, metadata: Metadata): SeeOutput {
   const paths = new Set(sources.map(source => source.path));
-  const parsed = sources.filter(source => /\.(?:[cm]?[jt]sx?|py|html?)$/i.test(source.path)).flatMap(source => extractFunctions(source).functions);
+  const parsedResults = sources.filter(source => /\.(?:[cm]?[jt]sx?|py|html?)$/i.test(source.path)).map(source => extractFunctions(source));
+  const parsed = parsedResults.flatMap(result => result.functions);
+  const parseErrors = parsedResults.flatMap(result => result.errors);
+  const unsupported = sources.some(source => !/\.(?:[cm]?[jt]sx?|py|html?|css|sql)$/i.test(source.path));
   const cachedImports = new Map(sources.map(source => [source.path, imports(source).slice(0, 15).map(ref => ({ ...ref, names: ref.names.slice(0, 15), target: resolveImport(source.path, ref.specifier, paths) }))]));
   const cachedEndpoints = new Map(sources.map(source => [source.path, endpoints(source, parsed.filter(fn => fn.path === source.path))]));
   const byId = new Map(parsed.map(fn => [`${fn.path}:${fn.startLine}:${fn.name}`, fn]));
@@ -25,8 +28,8 @@ export function astLayers(sources: RepositorySource[], query: string, metadata: 
     const code = withoutComments(source.path, content);
     const calls = new Set<string>();
     let ui = false, control = false;
-    const python = source.path.endsWith('.py'), adapted = /\.(?:html?|css|sql)$/i.test(source.path);
-    if (!python && !adapted) {
+    const python = source.path.endsWith('.py'), supported = /\.[cm]?[jt]sx?$/i.test(source.path), adapted = /\.(?:html?|css|sql)$/i.test(source.path);
+    if (supported) {
       const tree = ts.createSourceFile(source.path, code, ts.ScriptTarget.Latest, true, /\.[jt]sx$/.test(source.path) ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
       const visit = (node: ts.Node) => {
         if (ts.isCallExpression(node)) calls.add(node.expression.getText(tree));
@@ -35,7 +38,7 @@ export function astLayers(sources: RepositorySource[], query: string, metadata: 
         ts.forEachChild(node, visit);
       };
       visit(tree);
-    } else {
+    } else if (python || adapted) {
       for (const match of code.matchAll(/\b([\w]+(?:\.[\w]+)*)\s*\(/g)) calls.add(match[1]);
       control = /\b(?:if|for|while)\b/.test(code);
     }
@@ -52,7 +55,7 @@ export function astLayers(sources: RepositorySource[], query: string, metadata: 
     if (routeDefinitions.length) signals.push('api_handler');
     if (calls.size > 30 || imports(source).length > 15 || routes.length + routeDefinitions.length > 20 || refs.length > 20) detailsTruncated = true;
     symbols.push({ id: `${source.path}:${startLine}:${name}`, path: source.path, name, kind, startLine, endLine,
-      parser: python ? 'python-indentation-scanner' : adapted ? 'source-adapter' : 'typescript-ast', signals,
+      excerpt: content.slice(0, 500), parser: python ? 'python-indentation-scanner' : adapted ? 'source-adapter' : supported ? 'typescript-ast' : 'unsupported', signals,
       calls: [...calls].slice(0, 30), imports: cachedImports.get(source.path) || [],
       routes: [...routes, ...routeDefinitions.map(route => `defines ${route.method} ${route.route}`)].slice(0, 20), tables: [...new Set(refs.map(ref => ref.table))].slice(0, 20) });
   };
@@ -63,7 +66,7 @@ export function astLayers(sources: RepositorySource[], query: string, metadata: 
     add(source, fn.name, fn.kind, fn.startLine, fn.endLine, fn.searchText || fn.excerpt);
   }
   for (const source of ordered.slice(0, 100)) add(source, '(module)', 'module', 1, source.content.split('\n').length, source.content);
-  return finish({ ...metadata, stage: 'ast-layers', model_calls: 0, notes, truncated: detailsTruncated || parsed.length > selectedFunctions.length || sources.length > 100,
+  return finish({ ...metadata, coverage: metadata.coverage === 'partial' || parseErrors.length || unsupported ? 'partial' : 'complete', stage: 'ast-layers', analysis_query: query, model_calls: 0, notes: [...notes, ...parseErrors.slice(0, 10), ...(unsupported ? ['Some fetched file languages have no AST adapter and remain unclassified.'] : [])], truncated: detailsTruncated || parsed.length > selectedFunctions.length || sources.length > 100,
     total_items: parsed.length + sources.length, items: symbols });
 }
 
@@ -107,7 +110,7 @@ export function ruleClassifier(graph: SeeOutput): SeeOutput {
     if (symbol.signals.some(signal => ['database_query', 'database_schema'].includes(signal))) { candidates.add('database'); evidence.push(`Data query/schema${symbol.tables.length ? `: ${symbol.tables.join(', ')}` : ''}`); }
     if (symbol.signals.includes('domain_path') && symbol.signals.includes('control_flow') || symbol.signals.includes('api_handler')) { candidates.add('business_logic'); evidence.push(symbol.signals.includes('api_handler') ? 'API handler / orchestration (candidate)' : 'Domain/service path with control flow (candidate)'); }
     if (!candidates.size) evidence.push('Insufficient static evidence');
-    return { id: symbol.id, path: symbol.path, name: symbol.name, startLine: symbol.startLine, endLine: symbol.endLine, candidates: [...candidates], evidence, confidence: candidates.has('business_logic') ? 'medium' : candidates.size ? 'high' : 'low' };
+    return { id: symbol.id, path: symbol.path, name: symbol.name, startLine: symbol.startLine, endLine: symbol.endLine, excerpt: symbol.excerpt, candidates: [...candidates], evidence, confidence: candidates.has('business_logic') ? 'medium' : candidates.size ? 'high' : 'low' };
   });
   return finish({ ...graph, stage: 'rule-classifier', symbols: undefined, edges: graph.items as NonNullable<SeeOutput['edges']>, items, total_items: items.length });
 }

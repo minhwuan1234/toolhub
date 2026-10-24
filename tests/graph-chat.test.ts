@@ -58,7 +58,7 @@ void test('dispatcher rejects global tools, foreign nodes, inactive nodes and re
   const f = fixture();
   let calls = 0;
   globalThis.fetch = async () => { calls++; throw new Error('Unexpected network call'); };
-  const args = { node_id: 'reader-1', tool_id: 'linkedin-scanner', query: 'connect' };
+  const args = { node_id: 'reader-1', tool_id: 'linkedin-scanner', analysis_query: 'connect' };
   await assert.rejects(() => executeGraphChatFunction(agentId, 'scanner_write_file', args, () => {}), /not available/);
   await assert.rejects(() => executeGraphChatFunction(agentId, 'read_repository', { ...args, node_id: 'other-graph-node' }, () => {}), /not enabled/);
   f.document.nodes[0].active = false;
@@ -80,7 +80,7 @@ void test('plain-language chat routes to the in-graph reader and persists output
       const body = JSON.parse(init!.body as string) as { tools: Array<{ name: string }>; input: unknown };
       assert.deepEqual(body.tools.map(tool => tool.name), ['read_repository']);
       modelCalls++;
-      return Response.json({ usage: { input_tokens: 100, output_tokens: 50 }, output: modelCalls === 1 ? [{ type: 'function_call', call_id: 'call-1', name: 'read_repository', arguments: JSON.stringify({ node_id: 'reader-1', tool_id: 'linkedin-scanner', query: 'accept invitation' }) }] : [{ type: 'message', content: [{ type: 'output_text', text: 'Đã tìm thấy accept_invitation trong main.py. Graph hiện chỉ có chức năng đọc repo.' }] }] });
+      return Response.json({ usage: { input_tokens: 100, output_tokens: 50 }, output: modelCalls === 1 ? [{ type: 'function_call', call_id: 'call-1', name: 'read_repository', arguments: JSON.stringify({ node_id: 'reader-1', tool_id: 'linkedin-scanner', analysis_query: 'accept invitation' }) }] : [{ type: 'message', content: [{ type: 'output_text', text: 'Đã tìm thấy accept_invitation trong main.py. Graph hiện chỉ có chức năng đọc repo.' }] }] });
     }
     assert.ok(url.startsWith('https://api.github.com/repos/'));
     assert.ok(!init?.method || init.method === 'GET');
@@ -91,13 +91,13 @@ void test('plain-language chat routes to the in-graph reader and persists output
   await runGraphChat(agentId, 'Thêm trạng thái lời mời được chấp nhận', '', event => events.push(event));
   assert.equal(modelCalls, 2); assert.equal(githubCalls, 2);
   assert.deepEqual(events.map(event => event.type), ['node_start', 'node_result', ...Array.from({ length: 4 }, () => ['node_start', 'node_result']).flat(), 'reply']);
-  assert.equal(JSON.parse(f.outputs[0]).functions[0].name, 'accept_invitation');
+  assert.equal(JSON.parse(f.outputs[0]).files[0].path, 'main.py');
+  assert.ok(!('functions' in JSON.parse(f.outputs[0])));
   assert.equal(JSON.parse(f.outputs[0]).model_calls, 0);
   assert.deepEqual(f.outputs.slice(1).map(output => JSON.parse(output).stage), ['ast-layers', 'dependency-graph', 'rule-classifier', 'layer-assignment']);
   assert.equal(new Set(f.outputs.map(output => JSON.parse(output).run_id)).size, 1);
-  assert.equal(JSON.parse(f.outputs[0]).query_source, 'model');
-  assert.equal(JSON.parse(f.outputs[0]).groups[0].root, 'main.py');
-  assert.equal(events[0].type === 'node_start' && events[0].query, 'accept invitation');
+  assert.ok(!('query' in JSON.parse(f.outputs[0])));
+  assert.equal(JSON.parse(f.outputs[1]).analysis_query, 'accept invitation');
 });
 
 void test('model requesting an out-of-graph function cannot invoke it even if prompted to bypass scope', async () => {
@@ -133,7 +133,7 @@ void test('feature request runs repository discovery before Think and stores six
       }
       assert.deepEqual(body.tools.map(tool => tool.name), ['read_repository', 'think']);
       controllerCalls++;
-      const call = controllerCalls === 1 ? { name: 'read_repository', arguments: JSON.stringify({ node_id: 'reader-1', tool_id: 'linkedin-scanner', query: 'connect' }) } : { name: 'think', arguments: JSON.stringify({ node_id: 'think-1', source_node_id: 'reader-1' }) };
+      const call = controllerCalls === 1 ? { name: 'read_repository', arguments: JSON.stringify({ node_id: 'reader-1', tool_id: 'linkedin-scanner', analysis_query: 'connect' }) } : { name: 'think', arguments: JSON.stringify({ node_id: 'think-1', source_node_id: 'reader-1' }) };
       return Response.json({ usage: { input_tokens: 100, output_tokens: 50 }, output: controllerCalls < 3 ? [{ type: 'function_call', call_id: `call-${controllerCalls}`, ...call }] : [{ content: [{ type: 'output_text', text: 'Kế hoạch đã được lưu ở Think.' }] }] });
     }
     assert.ok(url.startsWith('https://api.github.com/repos/'));
@@ -169,7 +169,7 @@ void test('inactive See node stops discovery before network access', async () =>
   f.document.nodes.find(node => node.kind === 'rule-classifier')!.active = false;
   let calls = 0;
   globalThis.fetch = async () => { calls++; throw new Error('Unexpected network'); };
-  await assert.rejects(() => executeGraphChatFunction(agentId, 'read_repository', { node_id: 'reader-1', tool_id: 'linkedin-scanner', query: 'connect' }, () => {}), /Enable all four/);
+  await assert.rejects(() => executeGraphChatFunction(agentId, 'read_repository', { node_id: 'reader-1', tool_id: 'linkedin-scanner', analysis_query: 'connect' }, () => {}), /Enable all four/);
   assert.equal(calls, 0);
 });
 

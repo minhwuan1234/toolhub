@@ -66,3 +66,10 @@ void test('vanilla JavaScript DOM rendering is presentation without relying on f
   const assigned = layerAssignment(ruleClassifier(dependencyGraph(ast)));
   assert.equal((assigned.items as Array<LayerRule & { layer: string }>).find(item => item.name === 'renderConnect')?.layer, 'presentation');
 });
+
+void test('unsupported fetched sources and syntax diagnostics affect AST coverage, not file loading', () => {
+  const ast = astLayers([{ path: 'worker.go', content: 'package main' }, { path: 'broken.ts', content: 'function broken(' }], '', metadata);
+  assert.equal(ast.coverage, 'partial');
+  assert.ok(ast.notes.some(note => note.includes('syntax errors')));
+  assert.ok(ast.notes.some(note => note.includes('no AST adapter')));
+});
