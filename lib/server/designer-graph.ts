@@ -5,6 +5,8 @@ import { getDatabase } from './database';
 import { readScannerFile } from './linkedin-scanner';
 import { getAgentCard } from './agent-cards';
 import { isToolImported } from './imported-tools';
+import { seeStages, isSeeStage, type SeeOutput, type SeeStage } from '../see-contract';
+import { astLayers, dependencyGraph, ruleClassifier, layerAssignment } from '../repository-see';
 import { analyzeFeaturePlan } from './think';
 import { readAgentRepository, repositoryReplayQuery, repositoryToolsForAgent } from './repository-reader';
 
@@ -20,6 +22,7 @@ export type DesignerGraphNode = ContextTagSource & {
   useTestDocument: boolean;
   instructionPrompt: string;
   repoToolId?: string;
+  seeSourceId?: string;
 };
 export type DesignerGraphDocument = {
   nodes: DesignerGraphNode[];
@@ -28,6 +31,7 @@ export type DesignerGraphDocument = {
   screenContextVersion: number;
   repoReaderSeeded?: boolean;
   thinkSeeded?: boolean;
+  seeSeeded?: boolean;
   linkMode?: 'visual';
 };
 
@@ -57,7 +61,8 @@ export function validateDesignerGraph(value: unknown): DesignerGraphDocument {
   const graph = value as Record<string, unknown>;
   if (!Array.isArray(graph.nodes) || graph.nodes.length > 100 || !Array.isArray(graph.links) || graph.links.length > 300) throw new Error('Graph exceeds its node or link limit.');
   const nodes = graph.nodes as unknown[];
-  if (nodes.some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as DesignerGraphNode).id !== 'string' || !(item as DesignerGraphNode).id || (item as DesignerGraphNode).id.length > 100 || !['workflow', 'context', 'agent', 'tool-calling', 'human-approval', 'skill', 'agent-handoff', 'repo-reader', 'think'].includes((item as DesignerGraphNode).kind) || !Number.isFinite((item as DesignerGraphNode).x) || !Number.isFinite((item as DesignerGraphNode).y) || !Array.isArray((item as DesignerGraphNode).contextTags) || !Array.isArray((item as DesignerGraphNode).contextFiles) || (item as DesignerGraphNode).contextTags.length > 30 || (item as DesignerGraphNode).contextFiles.length > 20 || (item as DesignerGraphNode).kind === 'repo-reader' && ((item as DesignerGraphNode).repoToolId !== undefined && (typeof (item as DesignerGraphNode).repoToolId !== 'string' || (item as DesignerGraphNode).repoToolId!.length > 100) || typeof (item as DesignerGraphNode).taskText !== 'string' || (item as DesignerGraphNode).taskText!.length > 500) || (item as DesignerGraphNode).contextFiles.some(file => typeof file.id !== 'string' || typeof file.name !== 'string' || typeof file.content !== 'string' || file.content.length > 200000 || file.repoPath !== undefined && (file.repository !== 'linkedin-scanner' || typeof file.repoPath !== 'string' || file.repoPath.length > 500 || !file.repoPath)))) throw new Error('Graph has an invalid node.');
+  if (nodes.some(item => !item || typeof item !== 'object' || Array.isArray(item) || typeof (item as DesignerGraphNode).id !== 'string' || !(item as DesignerGraphNode).id || (item as DesignerGraphNode).id.length > 100 || !['workflow', 'context', 'agent', 'tool-calling', 'human-approval', 'skill', 'agent-handoff', 'repo-reader', 'think', ...seeStages.map(stage => stage.kind)].includes((item as DesignerGraphNode).kind) || !Number.isFinite((item as DesignerGraphNode).x) || !Number.isFinite((item as DesignerGraphNode).y) || !Array.isArray((item as DesignerGraphNode).contextTags) || !Array.isArray((item as DesignerGraphNode).contextFiles) || (item as DesignerGraphNode).contextTags.length > 30 || (item as DesignerGraphNode).contextFiles.length > 20 || (item as DesignerGraphNode).kind === 'repo-reader' && ((item as DesignerGraphNode).repoToolId !== undefined && (typeof (item as DesignerGraphNode).repoToolId !== 'string' || (item as DesignerGraphNode).repoToolId!.length > 100) || typeof (item as DesignerGraphNode).taskText !== 'string' || (item as DesignerGraphNode).taskText!.length > 500) || (item as DesignerGraphNode).contextFiles.some(file => typeof file.id !== 'string' || typeof file.name !== 'string' || typeof file.content !== 'string' || file.content.length > 200000 || file.repoPath !== undefined && (file.repository !== 'linkedin-scanner' || typeof file.repoPath !== 'string' || file.repoPath.length > 500 || !file.repoPath)))) throw new Error('Graph has an invalid node.');
+  if ((nodes as DesignerGraphNode[]).some(node => isSeeStage(node.kind) && (typeof node.seeSourceId !== 'string' || node.seeSourceId.length > 100 || !(nodes as DesignerGraphNode[]).some(reader => reader.id === node.seeSourceId && reader.kind === 'repo-reader')))) throw new Error('See nodes require a repository source in this graph.');
   const ids = new Set(nodes.map(item => (item as DesignerGraphNode).id));
   if (ids.size !== nodes.length) throw new Error('Graph has duplicate node IDs.');
   const kinds = new Map(nodes.map(item => [(item as DesignerGraphNode).id, (item as DesignerGraphNode).kind]));
@@ -76,6 +81,7 @@ export function validateDesignerGraph(value: unknown): DesignerGraphDocument {
     screenContextVersion: graph.screenContextVersion === 2 ? 2 : 0,
     ...(graph.repoReaderSeeded === true ? { repoReaderSeeded: true } : {}),
     ...(graph.thinkSeeded === true ? { thinkSeeded: true } : {}),
+    ...(graph.seeSeeded === true ? { seeSeeded: true } : {}),
     ...(visual ? { linkMode: 'visual' as const } : {}),
   };
 }
@@ -107,10 +113,10 @@ export async function getDesignerGraph(agentId = 'designer'): Promise<{ document
   const { rows } = await getDatabase().query<{ document: DesignerGraphDocument; revision: string }>('SELECT document, revision FROM designer_graphs WHERE id=$1', [graphIdForAgent(agentId)]);
   const row = rows[0];
   const document = row ? validateDesignerGraph(row.document) : null;
-  if (!document?.repoReaderSeeded || !document?.thinkSeeded) {
+  if (!document?.repoReaderSeeded || !document?.thinkSeeded || !document?.seeSeeded) {
     const card = await getAgentCard(agentId);
     if (card && (document?.repoReaderSeeded || /\bupgrading\b/i.test(card.name))) {
-      const seeded = seedThinkNode(seedRepositoryReader(document, agentId, card.toolIds), agentId);
+      const seeded = seedSeeNodes(seedThinkNode(seedRepositoryReader(document, agentId, card.toolIds), agentId), agentId);
       try {
         const revision = await saveDesignerGraph(seeded, Number(row?.revision) || 0, agentId);
         return { document: seeded, revision };
@@ -151,6 +157,96 @@ export function seedThinkNode(graph: DesignerGraphDocument, agentId: string): De
   return { ...graph, thinkSeeded: true, nodes: [...graph.nodes, node] };
 }
 
+export function seedSeeNodes(graph: DesignerGraphDocument, agentId: string): DesignerGraphDocument {
+  if (graph.seeSeeded) return graph;
+  const reader = graph.nodes.find(node => node.kind === 'repo-reader');
+  if (!reader) return graph;
+  const nodes = [...graph.nodes], links = graph.links.filter(link => !(link.source === reader.id && graph.nodes.some(node => node.id === link.target && node.kind === 'think')));
+  const baseX = reader.x + 220;
+  let previous = reader.id;
+  for (const [index, stage] of seeStages.entries()) {
+    let node = nodes.find(node => node.kind === stage.kind && node.seeSourceId === reader.id);
+    if (!node) {
+      if (nodes.length >= 100) throw new Error('Remove a node before adding the See pipeline.');
+      node = { ...reader, id: `${stage.kind}:${agentId}`, number: Math.max(...nodes.map(item => item.number)) + 1, kind: stage.kind, name: stage.name, x: baseX + index * 220, y: reader.y, seeSourceId: reader.id, instructionPrompt: '', contextText: '', contextFiles: [], contextTags: [] };
+      nodes.push({ ...node, icon: stage.kind === 'dependency-graph' ? 'workflow' : stage.kind === 'layer-assignment' ? 'database' : 'code' } as DesignerGraphNode);
+    }
+    if (!links.some(link => link.source === previous && link.target === node!.id)) links.push({ id: `see:${previous}:${node.id}`, source: previous, target: node.id, command: 'input' } as ContextInputLink);
+    previous = node.id;
+  }
+  const thinker = nodes.find(node => node.kind === 'think');
+  if (thinker) {
+    const index = nodes.indexOf(thinker);
+    nodes[index] = { ...thinker, x: baseX + 4 * 220, y: reader.y };
+    if (!links.some(link => link.source === previous && link.target === thinker.id)) links.push({ id: `see:${previous}:${thinker.id}`, source: previous, target: thinker.id, command: 'input' } as ContextInputLink);
+  }
+  return { ...graph, nodes, links, seeSeeded: true };
+}
+
+type SeeEvent = { type: 'node_start'; nodeId: string; name: string; query: string } | { type: 'node_result'; nodeId: string; name: string; output: string };
+async function assertSeeAccess(agentId: string, readerId: string, stageId: string, toolId: string) {
+  const [graph, tools] = await Promise.all([getDesignerGraph(agentId), repositoryToolsForAgent(agentId)]);
+  const reader = graph.document?.nodes.find(node => node.id === readerId && node.kind === 'repo-reader' && node.active !== false && (!node.repoToolId || node.repoToolId === toolId));
+  const node = graph.document?.nodes.find(node => node.id === stageId && isSeeStage(node.kind) && node.seeSourceId === readerId && node.active !== false);
+  if (!reader || !node || !tools.some(tool => tool.id === toolId)) throw new Error('See pipeline node or repository access is not enabled.');
+  return node;
+}
+
+export async function runRepositorySee(agentId: string, readerId: string, toolId: string, query: string, request: string, emit: (event: SeeEvent) => void = () => {}, signal?: AbortSignal, stopAfter?: SeeStage) {
+  const runId = randomUUID();
+  const graph = await getDesignerGraph(agentId);
+  const reader = graph.document?.nodes.find(node => node.id === readerId && node.kind === 'repo-reader' && node.active !== false);
+  if (!reader || reader.repoToolId && toolId && reader.repoToolId !== toolId) throw new Error('Read Repository is not enabled in this graph.');
+  const stages = seeStages.map(stage => graph.document!.nodes.find(node => node.kind === stage.kind && node.seeSourceId === readerId));
+  if (stages.slice(0, stopAfter ? seeStages.findIndex(stage => stage.kind === stopAfter) + 1 : 4).some(node => !node || node.active === false)) throw new Error('Enable all four See nodes before reading this repository.');
+  let assignment: SeeOutput | undefined;
+  const scan = await readAgentRepository(agentId, toolId, query, async (result, sources) => {
+    signal?.throwIfAborted();
+    const currentReader = (await getDesignerGraph(agentId)).document?.nodes.find(node => node.id === readerId && node.kind === 'repo-reader' && node.active !== false && (!node.repoToolId || node.repoToolId === result.tool_id));
+    if (!currentReader || !(await repositoryToolsForAgent(agentId)).some(tool => tool.id === result.tool_id)) throw new Error('Graph access changed during repository read.');
+    const output = JSON.stringify({ ...result, run_id: runId, query_source: 'model', user_request: request });
+    await saveDesignerGraphOutput(readerId, output, agentId);
+    emit({ type: 'node_result', nodeId: reader.id, name: reader.name, output });
+    let previous: SeeOutput | undefined;
+    for (const [index, stage] of seeStages.entries()) {
+      signal?.throwIfAborted();
+      const node = await assertSeeAccess(agentId, readerId, stages[index]!.id, result.tool_id);
+      emit({ type: 'node_start', nodeId: node.id, name: node.name, query: '' });
+      previous = index === 0 ? astLayers(sources, query, { run_id: runId, source_node_id: readerId, repository: result.repository, commit: result.commit, tool_id: result.tool_id, coverage: result.coverage }) : index === 1 ? dependencyGraph(previous!) : index === 2 ? ruleClassifier(previous!) : layerAssignment(previous!);
+      await assertSeeAccess(agentId, readerId, node.id, result.tool_id);
+      const output = JSON.stringify(previous);
+      await saveDesignerGraphOutput(node.id, output, agentId);
+      emit({ type: 'node_result', nodeId: node.id, name: node.name, output });
+      if (stage.kind === stopAfter) break;
+    }
+    assignment = previous;
+  });
+  return { ...scan, run_id: runId, query_source: 'model', user_request: request, layer_counts: assignment?.counts };
+}
+
+export async function runStoredSeeStage(nodeId: string, agentId: string) {
+  const graph = await getDesignerGraph(agentId);
+  const node = graph.document?.nodes.find(node => node.id === nodeId && isSeeStage(node.kind));
+  if (!node?.seeSourceId) throw new Error('See stage not found.');
+  const outputs = await getDesignerGraphOutputs(agentId);
+  const scan = JSON.parse(outputs[node.seeSourceId] || '{}') as { run_id?: string; tool_id?: string; commit?: string };
+  if (!scan.run_id || !scan.tool_id) throw new Error('Run Read Repository first.');
+  await assertSeeAccess(agentId, node.seeSourceId, nodeId, scan.tool_id);
+  const index = seeStages.findIndex(stage => stage.kind === node.kind);
+  if (index === 0) {
+    const saved = JSON.parse(outputs[node.seeSourceId]) as { query?: string; user_request?: string };
+    await runRepositorySee(agentId, node.seeSourceId, scan.tool_id, saved.query || '', saved.user_request || '', undefined, undefined, 'ast-layers');
+    return JSON.parse((await getDesignerGraphOutputs(agentId))[node.id]) as SeeOutput;
+  }
+  const previousNode = graph.document!.nodes.find(item => item.kind === seeStages[index - 1].kind && item.seeSourceId === node.seeSourceId && item.active !== false);
+  const previous = JSON.parse(outputs[previousNode?.id || ''] || '{}') as SeeOutput;
+  if (previous.stage !== seeStages[index - 1].kind || previous.run_id !== scan.run_id || previous.commit !== scan.commit) throw new Error('Run the preceding See stage for the current repository snapshot.');
+  const result = index === 1 ? dependencyGraph(previous) : index === 2 ? ruleClassifier(previous) : layerAssignment(previous);
+  await assertSeeAccess(agentId, node.seeSourceId, nodeId, scan.tool_id);
+  await saveDesignerGraphOutput(nodeId, JSON.stringify(result), agentId);
+  return result;
+}
+
 export async function runStoredThinkNode(nodeId: string, agentId: string, sourceNodeId?: string, request?: string, signal?: AbortSignal) {
   const { document } = await getDesignerGraph(agentId);
   if (!document?.nodes.some(node => node.id === nodeId && node.kind === 'think' && node.active !== false)) throw new Error('Think node is not enabled in this graph.');
@@ -163,7 +259,15 @@ export async function runStoredThinkNode(nodeId: string, agentId: string, source
   const allowed = await repositoryToolsForAgent(agentId);
   if (typeof scan.tool_id !== 'string' || !allowed.some(tool => tool.id === scan.tool_id) || reader.repoToolId && reader.repoToolId !== scan.tool_id) throw new Error('Repository access is not enabled for this agent.');
   const originalRequest = request || (typeof scan.user_request === 'string' ? scan.user_request : '');
-  const result = await analyzeFeaturePlan(originalRequest, reader.id, scan, signal);
+  for (const stage of seeStages) {
+    const stageNode = document.nodes.find(node => node.kind === stage.kind && node.seeSourceId === reader.id && node.active !== false);
+    const savedStage = JSON.parse(outputs[stageNode?.id || ''] || '{}') as SeeOutput;
+    if (!stageNode || savedStage.stage !== stage.kind || savedStage.run_id !== scan.run_id || savedStage.commit !== scan.commit) throw new Error('Complete the four See stages for this repository read before Think.');
+  }
+  const assignmentNode = document.nodes.find(node => node.kind === 'layer-assignment' && node.seeSourceId === reader.id && node.active !== false);
+  const assignment = JSON.parse(outputs[assignmentNode?.id || ''] || '{}') as SeeOutput;
+  if (!assignmentNode || assignment.stage !== 'layer-assignment' || !scan.run_id || assignment.run_id !== scan.run_id || assignment.commit !== scan.commit) throw new Error('Complete the four See stages for this repository read before Think.');
+  const result = await analyzeFeaturePlan(originalRequest, reader.id, { ...scan, layer_assignment: assignment }, signal);
   const fresh = await getDesignerGraph(agentId);
   const freshTools = await repositoryToolsForAgent(agentId);
   if (!fresh.document?.nodes.some(node => node.id === nodeId && node.kind === 'think' && node.active !== false) || !fresh.document.nodes.some(node => node.id === reader.id && node.kind === 'repo-reader' && node.active !== false && (!node.repoToolId || node.repoToolId === scan.tool_id)) || !freshTools.some(tool => tool.id === scan.tool_id)) throw new Error('Graph access changed during Think.');
@@ -392,7 +496,9 @@ export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string
         const replay = repositoryReplayQuery(previous.rows[0]?.content);
         let userRequest = '';
         try { const saved = JSON.parse(previous.rows[0]?.content || '{}') as { user_request?: unknown }; if (typeof saved.user_request === 'string') userRequest = saved.user_request; } catch { /* No original request on older scans. */ }
-        output = JSON.stringify({ ...await readAgentRepository(agentId, node.repoToolId || '', replay.query), query_source: replay.query_source, user_request: userRequest });
+        output = JSON.stringify(await runRepositorySee(agentId, node.id, node.repoToolId || '', replay.query, userRequest));
+      } else if (isSeeStage(node.kind)) {
+        output = JSON.stringify(await runStoredSeeStage(node.id, agentId));
       } else if (node.kind === 'think') {
         output = JSON.stringify(await runStoredThinkNode(node.id, agentId));
       } else if (node.kind === 'context') {
@@ -405,7 +511,7 @@ export async function runGraphToNode(nodeId: string, liveHandoffs: Record<string
       } else if (node.kind === 'agent-handoff') {
         output = node.handoffMode === 'receive' ? liveHandoffs[id] || (node.useTestDocument ? node.testDocument || '' : '') : previous.map(item => item.output).filter(Boolean).join('\n\n');
       }
-      if (id === nodeId && node.kind !== 'agent' && node.kind !== 'human-approval' && node.kind !== 'think' && output) await saveDesignerGraphOutput(id, output, agentId);
+      if (id === nodeId && node.kind !== 'agent' && node.kind !== 'human-approval' && node.kind !== 'think' && !isSeeStage(node.kind) && node.kind !== 'repo-reader' && output) await saveDesignerGraphOutput(id, output, agentId);
       completed.set(id, output);
       return output;
     } finally { visiting.delete(id); }

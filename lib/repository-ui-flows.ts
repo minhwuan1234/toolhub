@@ -12,7 +12,7 @@ export type RepositoryFlow = {
   unresolved: string[]; truncated: boolean;
 };
 
-function withoutComments(path: string, code: string): string {
+export function withoutComments(path: string, code: string): string {
   if (/\.html?$/i.test(path)) return code.replace(/<!--[\s\S]*?-->/g, comment => comment.replace(/[^\n]/g, ' '));
   if (path.endsWith('.py')) {
     let result = '', quote = '';
@@ -46,7 +46,7 @@ function identifiers(code: string) {
   return result;
 }
 
-function imports(source: RepositorySource): ImportRef[] {
+export function imports(source: RepositorySource): ImportRef[] {
   const result: ImportRef[] = [];
   if (source.path.endsWith('.py')) {
     for (const match of source.content.matchAll(/^\s*from\s+([.\w]+)\s+import\s+([^\n]+)/gm)) {
@@ -71,7 +71,7 @@ function imports(source: RepositorySource): ImportRef[] {
   return result;
 }
 
-function resolveImport(source: string, specifier: string, paths: Set<string>): string | undefined {
+export function resolveImport(source: string, specifier: string, paths: Set<string>): string | undefined {
   const parent = posix.dirname(source);
   const roots: string[] = [];
   if (source.endsWith('.py')) {
@@ -95,7 +95,7 @@ function routeKey(route: string) {
   return route.split('?')[0].replace(/\$\{[^}]+\}|:[\w]+|\[[^\]]+\]|<[^>]+>/g, ':param').replace(/\/+$/, '') || '/';
 }
 
-function endpoints(source: RepositorySource, functions: RepositoryFunction[]): Endpoint[] {
+export function endpoints(source: RepositorySource, functions: RepositoryFunction[]): Endpoint[] {
   const result: Endpoint[] = [];
   const next = source.path.match(/(?:^|\/)(?:app\/(api\/.*)\/route|pages\/(api\/.*))\.[cm]?[jt]sx?$/);
   if (next) for (const fn of functions.filter(fn => /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)$/.test(fn.name))) result.push({ path: source.path, route: `/${(next[1] || next[2]).replace(/\/index$/, '')}`, method: fn.name, symbol: fn.name, line: fn.startLine });
@@ -110,7 +110,7 @@ function endpoints(source: RepositorySource, functions: RepositoryFunction[]): E
   return result;
 }
 
-function requestRoutes(code: string): Array<{ route: string; method?: string }> {
+export function requestRoutes(code: string): Array<{ route: string; method?: string }> {
   const result: Array<{ route: string; method?: string }> = [];
   for (const match of code.matchAll(/\bfetch\(\s*(['"`])([^'"`]+)\1\s*(?:,\s*\{([^}]*))?/g)) result.push({ route: match[2], method: match[3]?.match(/method\s*:\s*['"](\w+)['"]/)?.[1].toUpperCase() || 'GET' });
   for (const match of code.matchAll(/\b\w+\.(get|post|put|patch|delete)\(\s*(['"`])([^'"`]+)\2/g)) if (match[3].startsWith('/')) result.push({ route: match[3], method: match[1].toUpperCase() });
@@ -118,7 +118,7 @@ function requestRoutes(code: string): Array<{ route: string; method?: string }> 
   return result;
 }
 
-function databaseReferences(path: string, code: string, startLine: number): DatabaseRef[] {
+export function databaseReferences(path: string, code: string, startLine: number): DatabaseRef[] {
   const refs: DatabaseRef[] = [];
   const patterns = [/\.(?:from|table)\(\s*['"]([\w.]+)['"]\s*\)/g, /\b(?:FROM|JOIN|INTO|UPDATE)\s+["`]?([\w.]+)["`]?/gi];
   for (const pattern of patterns) for (const match of code.matchAll(pattern)) {

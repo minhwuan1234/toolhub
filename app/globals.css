@@ -1009,3 +1009,7 @@ fieldset.canvas-zone-frame { margin:0; padding:0; border:0; }
 .think-footer { display: flex; justify-content: flex-end; padding: 14px 24px; border-top: 1px solid #e8e7e3; }
 .think-footer button { display: inline-flex; align-items: center; gap: 6px; }
 .graph-chat-toggle { cursor: pointer; border: 0; }
+
+.see-output-table { table-layout:auto; min-width:900px; }
+.see-output-table td { min-width:120px; max-width:400px; }
+.workflow-graph .connection-line.is-running { stroke:#238452; stroke-width:2.5; }

@@ -174,7 +174,7 @@ void test('loading the Upgrading Agent graph creates and persists its node exact
   const first = await getDesignerGraph('developer');
   assert.equal(first.document?.nodes[0].name, 'Read Repository');
   const second = await getDesignerGraph('developer');
-  assert.equal(second.document?.nodes.length, 2);
+  assert.equal(second.document?.nodes.length, 6);
   assert.equal(second.document?.nodes[1].kind, 'think');
   assert.equal(second.document?.thinkSeeded, true);
   assert.equal(writes, 1);

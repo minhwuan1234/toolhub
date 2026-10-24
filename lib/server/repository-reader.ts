@@ -24,7 +24,7 @@ export async function repositoryToolsForAgent(agentId: string) {
   return imported.filter(tool => card?.toolIds.includes(tool.id) && providers[tool.id]).map(tool => ({ id: tool.id, name: tool.name }));
 }
 
-export async function analyzeRepositoryArchive(bytes: Uint8Array, query: string) {
+export async function analyzeRepositoryArchive(bytes: Uint8Array, query: string, onSources?: (sources: RepositorySource[]) => void) {
   const zip = await JSZip.loadAsync(bytes);
   const entries = Object.values(zip.files).filter(file => !file.dir).sort((a, b) => a.name.localeCompare(b.name));
   if (entries.length > 30000) throw new Error('Repository has too many files for one scan.');
@@ -85,14 +85,18 @@ export async function analyzeRepositoryArchive(bytes: Uint8Array, query: string)
   }
   result.returned_functions = result.functions.length;
   result.returned_groups = result.groups.length;
+  onSources?.(sources);
   return result;
 }
 
-export async function readAgentRepository(agentId: string, toolId: string, query = '') {
+export async function readAgentRepository(agentId: string, toolId: string, query = '', onRead?: (result: Awaited<ReturnType<typeof analyzeRepositoryArchive>> & { tool_id: string; repository: string; commit: string; scanned_at: string }, sources: RepositorySource[]) => Promise<void>) {
   if (query.length > 500) throw new Error('Search query is too long.');
   const tools = await repositoryToolsForAgent(agentId);
   const selected = toolId || (tools.length === 1 ? tools[0].id : '');
   if (!selected || !tools.some(tool => tool.id === selected)) throw new Error('Select a repository tool enabled in this agent card.');
   const snapshot = await providers[selected]();
-  return { tool_id: selected, repository: snapshot.repository, commit: snapshot.commit, scanned_at: new Date().toISOString(), ...await analyzeRepositoryArchive(snapshot.bytes, query) };
+  let sources: RepositorySource[] = [];
+  const result = { tool_id: selected, repository: snapshot.repository, commit: snapshot.commit, scanned_at: new Date().toISOString(), ...await analyzeRepositoryArchive(snapshot.bytes, query, value => { sources = value; }) };
+  await onRead?.(result, sources);
+  return result;
 }

@@ -1,6 +1,6 @@
 import { getAgentCard } from './agent-cards';
-import { getDesignerGraph, runStoredThinkNode, saveDesignerGraphOutput } from './designer-graph';
-import { readAgentRepository, repositoryToolsForAgent } from './repository-reader';
+import { getDesignerGraph, runStoredThinkNode, runRepositorySee } from './designer-graph';
+import { repositoryToolsForAgent } from './repository-reader';
 import { reserveAgentApiSpend, settleAgentApiSpend } from './agent-api-spend';
 
 export type GraphChatEvent =
@@ -44,18 +44,13 @@ export async function executeGraphChatFunction(agentId: string, name: string, ar
   const node = scope.nodes.find(node => node.id === a.node_id && node.kind === 'repo-reader');
   if (!node || !node.tools.some(tool => tool.id === a.tool_id)) throw new Error('This node or tool is not enabled in the current graph.');
   emit({ type: 'node_start', nodeId: node.id, name: node.name, query: a.query });
-  const result = { ...await readAgentRepository(agentId, a.tool_id, a.query), query_source: 'model' as const, user_request: execution?.request || '' };
-  const current = await graphChatCapabilities(agentId);
-  if (!current.nodes.some(item => item.id === node.id && item.tools.some(tool => tool.id === a.tool_id))) throw new Error('Graph access changed during this request.');
-  const output = JSON.stringify(result);
-  await saveDesignerGraphOutput(node.id, output, agentId);
-  emit({ type: 'node_result', nodeId: node.id, name: node.name, output });
+  const result = await runRepositorySee(agentId, node.id, a.tool_id, a.query, execution?.request || '', emit, execution?.signal);
   execution?.readNodeIds.add(node.id);
   // Full output stays on the node. Keep model context bounded and make truncation explicit.
   return {
     node_id: node.id, repository: result.repository, commit: result.commit, query: result.query,
     scanned_files: result.scanned_files, total_functions: result.total_functions,
-    matched_functions: result.matched_functions, coverage: result.coverage,
+    matched_functions: result.matched_functions, coverage: result.coverage, layer_counts: result.layer_counts,
     skipped_file_count: result.skipped_file_count, errors: result.errors,
     grouping_notes: result.grouping_notes, total_groups: result.total_groups,
     preview_groups: result.groups.slice(0, 8).map(group => ({ name: group.name, kind: group.kind, root: group.root, files: group.files.slice(0, 8), functions: group.functions.slice(0, 8).map(fn => ({ name: fn.name, path: fn.path, line: fn.startLine })), endpoints: group.endpoints.slice(0, 5), database: group.database.slice(0, 5), unresolved: group.unresolved.slice(0, 5), truncated: group.truncated })),
@@ -73,7 +68,7 @@ export async function runGraphChat(agentId: string, message: string, context: st
   const thinkers = scope.nodes.filter(node => node.kind === 'think');
   const tools: Array<{ type: string; name: string; strict: boolean; description: string; parameters: Record<string, unknown> }> = available.length ? [{
     type: 'function', name: 'read_repository', strict: true,
-    description: 'Execute a Read Repository node in this graph. Group source code by UI entry points, follow imports and API routes to backend functions and database references, without a model inside the node. Set query to short technical keywords inferred from the user request; use an empty query to explore UI flows when relevant terms are unknown. The query is model input, never ask the user to fill a search field. This action cannot edit files or data.',
+    description: 'Execute a Read Repository node in this graph. Group source code by UI entry points, follow imports and API routes to backend functions and database references, without a model inside the node. Set query to short technical keywords inferred from the user request; use an empty query to explore UI flows when relevant terms are unknown. The query is model input, never ask the user to fill a search field. After the read, runs AST Layers, Dependency Graph, Rule Classifier and layer_assignment sequentially on the same source snapshot. This action cannot edit files or data.',
     parameters: { type: 'object', properties: {
       node_id: { type: 'string', enum: available.map(node => node.id) },
       tool_id: { type: 'string', enum: [...new Set(available.flatMap(node => node.tools.map(tool => tool.id)))] },
